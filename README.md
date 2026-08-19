@@ -62,6 +62,15 @@ that is usually missing. A document whose claims all pass but which omits a file
 that is present is reported as **not verified** — an undocumented component is
 the shape a smuggled payload takes.
 
+**It reports its own coverage.** `tessera coverage` maps the output against the
+**G7 SBOM for AI minimum elements** (May 2026) and **CERT-In's AIBOM table**,
+and says which rows it fills. It distinguishes an element this artifact happens
+not to disclose from one no static parse can ever supply — training properties,
+dataset hashes, benchmark results — and gives the reason for each. Those
+checklists are what a regulated buyer will hold the output against, and neither
+publisher ships anything that measures conformance. The gaps are the honest
+part: a buyer discovers them either from this report or on their own.
+
 **It is a library first.** Zero third-party dependencies, no network, no output
 of its own — so it embeds inside another program rather than being shelled out
 to. That is the difference that matters most if you are putting it inside
@@ -163,6 +172,9 @@ tessera bom model.onnx --format spdx --reproducible
 
 # Check a document against the artifact it claims to describe
 tessera verify model.cdx.json ./model-dir
+
+# Report coverage against a published minimum-elements standard
+tessera coverage ./model-dir --standard g7
 ```
 
 `bom` accepts a single file or a directory containing one model (it resolves

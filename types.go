@@ -1,6 +1,7 @@
 package tessera
 
 import (
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/coverage"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/verify"
 )
@@ -59,6 +60,27 @@ type (
 	VerifyCheck = verify.Check
 	// VerifyOutcome is the result of a single check.
 	VerifyOutcome = verify.Outcome
+
+	// CoverageReport is how far an artifact goes toward a published
+	// minimum-elements standard.
+	CoverageReport = coverage.Report
+	// CoverageElement is one row of such a standard.
+	CoverageElement = coverage.Element
+	// CoverageStatus is whether an element was supplied.
+	CoverageStatus = coverage.Status
+)
+
+// Coverage statuses.
+const (
+	// CoveragePopulated means the artifact supplied the element.
+	CoveragePopulated = coverage.Populated
+	// CoverageAbsent means the element is derivable in principle but this
+	// artifact did not disclose it.
+	CoverageAbsent = coverage.Absent
+	// CoverageOutOfScope means no static parse of a model file can supply it.
+	// Kept distinct from absent because the remedy differs: one is a property
+	// of the artifact, the other of the method.
+	CoverageOutOfScope = coverage.OutOfScope
 )
 
 // Verification outcomes.

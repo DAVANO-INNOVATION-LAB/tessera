@@ -58,6 +58,8 @@ func main() {
 		os.Exit(runInspect(os.Args[2:]))
 	case "verify":
 		os.Exit(runVerify(os.Args[2:]))
+	case "coverage":
+		os.Exit(runCoverage(os.Args[2:]))
 	case "version":
 		fmt.Println(version)
 	case "-h", "--help", "help":
@@ -435,4 +437,75 @@ func printVerify(r *tessera.VerifyResult, docPath, artifactPath string) {
 	} else {
 		fmt.Println("\nNOT VERIFIED: the artifact does not match the document")
 	}
+}
+
+// runCoverage reports how far an artifact goes toward a published
+// minimum-elements standard.
+func runCoverage(args []string) int {
+	fs := flag.NewFlagSet("coverage", flag.ContinueOnError)
+	standard := fs.String("standard", "g7", "minimum-elements standard: "+
+		strings.Join(tessera.CoverageStandards(), ", "))
+	jsonOut := fs.Bool("json", false, "emit the report as JSON")
+	path, err := parseWithPositional(fs, args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Usage: tessera coverage <path> [--standard g7|cert-in] [--json]")
+		return exitUsage
+	}
+
+	rep, err := tessera.Coverage(context.Background(), *standard, path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tessera coverage: %v\n", err)
+		return exitError
+	}
+
+	if *jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(rep); err != nil {
+			fmt.Fprintf(os.Stderr, "tessera coverage: %v\n", err)
+			return exitError
+		}
+		return exitClean
+	}
+
+	printCoverage(rep, path)
+	return exitClean
+}
+
+func printCoverage(r *tessera.CoverageReport, path string) {
+	fmt.Printf("tessera %s — %s\n  artifact %s\n\n", version, r.Title, path)
+
+	mark := map[tessera.CoverageStatus]string{
+		tessera.CoveragePopulated:  "yes",
+		tessera.CoverageAbsent:     "-  ",
+		tessera.CoverageOutOfScope: "n/a",
+	}
+	cluster := ""
+	for _, e := range r.Elements {
+		if e.Cluster != cluster {
+			cluster = e.Cluster
+			fmt.Printf("  %s\n", cluster)
+		}
+		fmt.Printf("    [%s] %s\n", mark[e.Status], e.Name)
+		if e.Value != "" {
+			fmt.Printf("          %s\n", truncate(e.Value, 88))
+		}
+		if e.Note != "" {
+			fmt.Printf("          %s\n", e.Note)
+		}
+	}
+
+	total := r.Populated + r.Absent + r.OutOfScope
+	fmt.Printf("\n  %d of %d elements populated; %d absent from this artifact, "+
+		"%d not derivable from any model file.\n",
+		r.Populated, total, r.Absent, r.OutOfScope)
+	fmt.Println("  Elements marked n/a need training data, evaluation results or")
+	fmt.Println("  deployment context, none of which a static parse can see.")
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
 }
