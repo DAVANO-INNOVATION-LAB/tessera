@@ -150,8 +150,19 @@ tessera bom model.onnx --format spdx --reproducible
 shard sets and ONNX external-data files, hashing each physical file
 independently).
 
-**Exit codes** are made for CI gates: `0` clean, `2` findings up to High, `3` a
-Critical finding, `1` the parse itself failed.
+**Exit codes** are made for CI gates:
+
+| Code | Meaning |
+|------|---------|
+| `0` | scanned, nothing above Low |
+| `2` | scanned, findings up to High |
+| `3` | scanned, at least one Critical |
+| `1` | the scan itself failed |
+| `64` | the command line was wrong — **nothing was scanned** |
+
+`64` is separate from `1` on purpose. A gate that treats a nonzero-but-known code
+as "findings, warn and continue" would otherwise pass silently on a typo'd flag,
+having never looked at the artifact at all.
 
 ## What it detects
 
