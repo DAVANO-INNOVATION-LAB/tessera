@@ -28,8 +28,107 @@ const maxSidecarBytes = 8 << 20
 // readSidecars fills a.Declared from files beside the model.
 func readSidecars(a *model.Artifact, dir, primary string) {
 	readConfigJSON(a, dir)
+	readModelCard(a, dir)
 	readShardIndex(a, dir)
 	notePeerWeightFiles(a, dir, primary)
+}
+
+// readModelCard reads the YAML frontmatter of a model card.
+//
+// safetensors carries no licence of its own, so without this a model whose card
+// plainly says "license: apache-2.0" is reported as disclosing no licence at
+// all — a false finding on the majority of the Hugging Face Hub, and one that
+// also empties the licence element the CISA/G7 minimum-elements guidance asks a
+// bill of materials to populate.
+//
+// Deliberately a small hand-written parser rather than a YAML dependency. Only
+// the scalar and simple-list forms the Hub validates are accepted, and this
+// package parses files written by whoever published the model, so the smaller
+// the surface the better.
+func readModelCard(a *model.Artifact, dir string) {
+	raw, err := os.ReadFile(filepath.Join(dir, "README.md"))
+	if err != nil {
+		return
+	}
+	fields := parseFrontmatter(string(raw))
+	if len(fields) == 0 {
+		return
+	}
+
+	// A card licence is a claim by the publisher, not something measured, so it
+	// is recorded like any other disclosure and resolved to SPDX downstream.
+	if lic := fields["license"]; lic != "" {
+		a.Licenses = append(a.Licenses, model.License{Raw: lic})
+	}
+	// base_model may be a list, which on the Hub means a merge. Keeping the
+	// whole value preserves that rather than silently reporting one parent.
+	if a.Declared.BaseModel == "" {
+		if base := fields["base_model"]; base != "" {
+			a.Declared.BaseModel = base
+		}
+	}
+	if a.Declared.Source == "" {
+		a.Declared.Source = "README.md"
+	} else if !strings.Contains(a.Declared.Source, "README.md") {
+		a.Declared.Source += ", README.md"
+	}
+}
+
+// parseFrontmatter extracts the leading --- delimited YAML block.
+//
+// Returns scalars as themselves and simple lists joined by commas; anything
+// nested is skipped rather than guessed at.
+func parseFrontmatter(text string) map[string]string {
+	if !strings.HasPrefix(text, "---") {
+		return nil
+	}
+	end := strings.Index(text[3:], "\n---")
+	if end < 0 {
+		return nil
+	}
+	block := text[3 : 3+end]
+
+	out := map[string]string{}
+	var listKey string
+	var items []string
+
+	flush := func() {
+		if listKey != "" && len(items) > 0 {
+			out[listKey] = strings.Join(items, ",")
+		}
+		listKey, items = "", nil
+	}
+
+	for _, line := range strings.Split(block, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			if listKey != "" {
+				items = append(items, strings.Trim(strings.TrimPrefix(trimmed, "- "), `"' `))
+			}
+			continue
+		}
+		flush()
+		key, value, found := strings.Cut(trimmed, ":")
+		if !found {
+			continue
+		}
+		// Nested keys are indented; only top-level ones are read.
+		if line != trimmed && strings.HasPrefix(line, "  ") {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		if value == "" {
+			listKey = key
+			continue
+		}
+		out[key] = value
+	}
+	flush()
+	return out
 }
 
 // hfConfig is the subset of a Hugging Face config.json worth comparing. Field
