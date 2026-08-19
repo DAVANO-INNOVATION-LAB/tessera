@@ -1,6 +1,7 @@
 package emit
 
 import (
+	"cmp"
 	"net/url"
 	"strings"
 
@@ -22,7 +23,7 @@ import (
 // pointing at the wrong repository is a false provenance claim in a document
 // whose whole purpose is provenance.
 func purlFor(a *model.Artifact) string {
-	owner, repo := huggingFaceRepo(firstNonEmpty(a.Identity.RepoURL, a.Identity.URL))
+	owner, repo := huggingFaceRepo(cmp.Or(a.Identity.RepoURL, a.Identity.URL))
 	if owner == "" || repo == "" {
 		return ""
 	}

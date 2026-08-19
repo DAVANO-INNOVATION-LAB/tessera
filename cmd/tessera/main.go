@@ -14,6 +14,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"flag"
@@ -25,6 +26,7 @@ import (
 	"time"
 
 	tessera "github.com/DAVANO-INNOVATION-LAB/tessera"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/strutil"
 )
 
 // version is stamped by the linker: -ldflags "-X main.version=v0.1.0".
@@ -130,7 +132,7 @@ func runBOM(args []string) int {
 		return exitUsage
 	}
 
-	slug := sanitizeFile(artifact.Identity.Name)
+	slug := strutil.Slug(artifact.Identity.Name, "model")
 	for _, fmtName := range formats {
 		data, err := render(fmtName, artifact, generatedAt)
 		if err != nil {
@@ -257,7 +259,7 @@ func printHuman(a *tessera.Artifact) {
 	if a.Identity.Version != "" {
 		fmt.Printf("  version       %s\n", a.Identity.Version)
 	}
-	if sup := firstNonEmpty(a.Identity.Organization, a.Identity.Author); sup != "" {
+	if sup := cmp.Or(a.Identity.Organization, a.Identity.Author); sup != "" {
 		fmt.Printf("  supplier      %s\n", sup)
 	}
 	if len(a.Licenses) > 0 {
@@ -346,15 +348,6 @@ func exitCode(a *tessera.Artifact) int {
 	}
 }
 
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
 func orNone(s string) string {
 	if s == "" {
 		return "(none disclosed)"
@@ -367,21 +360,4 @@ func shortHash(sha string) string {
 		return sha[:12]
 	}
 	return "-"
-}
-
-func sanitizeFile(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
-			b.WriteRune(r)
-		default:
-			b.WriteRune('-')
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return "model"
-	}
-	return out
 }

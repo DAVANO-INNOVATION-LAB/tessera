@@ -84,7 +84,7 @@ func Parse(ctx context.Context, path string, opts Options) (*model.Artifact, err
 	case model.FormatGGUF:
 		a, err = ParseGGUF(primary)
 	case model.FormatSafetensors:
-		a, err = ParseSafetensors(primary)
+		a, err = parseSafetensorsBounded(primary, opts.MaxFileSize)
 	case model.FormatONNX:
 		a, err = parseONNXBounded(primary, opts.MaxFileSize)
 	default:

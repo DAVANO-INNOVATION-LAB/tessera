@@ -156,6 +156,7 @@ suppressions — so the list is complete rather than illustrative.
 | `TESS-GGUF-007` | High | A metadata array declaring more elements than the cap. |
 | `TESS-GGUF-006` | High | A nested metadata array. GGUF has none legally, and deep nesting exhausts a parser's stack. |
 | `TESS-GGUF-004` | Medium | A tensor declaring an impossible dimension count; the tensor table is truncated. |
+| `TESS-GGUF-008` | Medium | An unsupported GGUF version. Version 1 laid out its counts differently, so nothing past the header was examined rather than misparsed. |
 | `TESS-ST-002` | High | A safetensors header length inconsistent with the file size. |
 | `TESS-ST-001` | Medium | A truncated safetensors header. |
 | `TESS-ST-003` | Medium | A safetensors header that is not valid JSON. |
