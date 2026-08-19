@@ -82,3 +82,52 @@ func TestNoFrontmatterIsNotAnError(t *testing.T) {
 		t.Fatal("an unterminated block must not be parsed")
 	}
 }
+
+// The G7 "SBOM for AI — Minimum Elements" Models cluster asks for training
+// properties and a task; CycloneDX has fields for both. The card carries them
+// and they were being read and thrown away.
+func TestModelCardDatasetsBecomeLineage(t *testing.T) {
+	dir := t.TempDir()
+	card := "---\ndatasets:\n- allenai/c4\n- wikitext\npipeline_tag: text-generation\nlibrary_name: transformers\n---\n"
+	os.WriteFile(filepath.Join(dir, "README.md"), []byte(card), 0o644)
+
+	var a model.Artifact
+	readModelCard(&a, dir)
+
+	if len(a.Lineage.Datasets) != 2 {
+		t.Fatalf("both declared datasets should become lineage, got %+v", a.Lineage.Datasets)
+	}
+	if a.Lineage.Datasets[0].URL != "https://huggingface.co/datasets/allenai/c4" {
+		t.Errorf("an owner/name dataset should resolve to a Hub URL, got %q", a.Lineage.Datasets[0].URL)
+	}
+	// "wikitext" has no owner, so there is no Hub id to build a URL from and
+	// inventing one would fabricate a location.
+	if a.Lineage.Datasets[1].URL != "" {
+		t.Errorf("a bare name must not be turned into a URL, got %q", a.Lineage.Datasets[1].URL)
+	}
+	// Task is a claim, not a measurement, so it belongs to Declared.
+	if a.Declared.Task != "text-generation" {
+		t.Errorf("pipeline_tag should land in Declared.Task, got %q", a.Declared.Task)
+	}
+	if a.Declared.Library != "transformers" {
+		t.Errorf("library_name should be recorded, got %q", a.Declared.Library)
+	}
+}
+
+// base_model may be a filesystem path rather than a Hub id — PEFT records
+// whatever was passed to from_pretrained. Turning that into a URL would assert
+// a provenance link that does not exist.
+func TestLocalBaseModelPathIsNotTurnedIntoAURL(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "README.md"),
+		[]byte("---\nbase_model: /home/me/checkpoints/run-3\n---\n"), 0o644)
+
+	var a model.Artifact
+	readModelCard(&a, dir)
+
+	for _, ref := range a.Lineage.BaseModels {
+		if ref.URL != "" {
+			t.Fatalf("a local path must not become a URL, got %q", ref.URL)
+		}
+	}
+}
