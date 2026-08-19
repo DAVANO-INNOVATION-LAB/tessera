@@ -10,17 +10,17 @@ import (
 // Drift compares what a model declares about itself against what its bytes
 // actually contain.
 //
-// Tools in this space read both sides and do not compare them. syft is the
-// clearest example: its safetensors cataloger parses the tensor header and
-// reads config.json in the same pass, and asks nothing about whether the two
-// agree. That gap is worth occupying, because a declaration nobody checks is
-// exactly where a wrong or dishonest claim survives: a card advertising
-// bfloat16 over 8-bit weights, a config naming one architecture while the
-// tensors implement another, a shard set that is quietly short a file.
+// The comparison is the point. Plenty of tools read both sides — syft, for one,
+// parses the tensor header and reads config.json in the same cataloger — and do
+// not ask whether the two agree. A declaration nobody checks is exactly where a
+// wrong or dishonest claim survives: a card advertising bfloat16 over 8-bit
+// weights, a config naming one architecture while the tensors implement another,
+// a shard set that is quietly short a file.
 //
-// That was true of every comparable tool surveyed on 2026-08-19. It is the kind
-// of claim that ages, so it is written as an observation with a date rather
-// than as a permanent boast.
+// Tools that do compare generally do it against a hub API. Doing it from local
+// bytes is why this lives in the parser rather than in a hub client: the case
+// that matters is the artifact already sitting on disk, with no repository
+// behind it to ask.
 //
 // None of these findings prove malice, and they are not written as though they
 // do. A stale config is far more common than a forged one. What a drift finding

@@ -27,33 +27,40 @@ Tessera reads the **file itself**:
 - **safetensors** carries almost nothing; Tessera harvests what is there and
   pulls shard sets from `model.safetensors.index.json`.
 
-### What it does that the others do not
+### What it does
 
-Reading model binaries offline is no longer unusual — several projects now do
-it, and several produce security findings from what they read. Two things are
-still not done anywhere else, as of a survey on 2026-08-19:
+Reading model binaries offline is no longer unusual, and neither is producing
+security findings from what they disclose. Several projects do both. What
+follows describes what Tessera does, not what anyone else fails to do — a
+comparative claim in a README goes stale faster than the README does, and two of
+them here already did.
 
 **It checks the claims against the bytes.** A model states things about itself
 in `config.json` and its model card: an architecture, a precision, a shard
 count. Tessera reads those, reads what the tensor headers actually contain, and
 reports where the two disagree — a config declaring `bfloat16` over 8-bit
 weights, an architecture the binary does not implement, a shard set short a
-file. Other tools read both sides and never compare them; syft, for instance,
-parses `config.json` and the safetensors header in the same cataloger and asks
-nothing about whether they agree. A declaration nobody checks is exactly where a
-wrong claim survives, and these findings say plainly that a claim is
-unsupported — not that anyone lied, because a stale config is far more common
-than a forged one.
+file. A declaration nobody checks is where a wrong claim survives. These
+findings say a specific claim is unsupported by the artifact; they do not say
+anyone lied, because a stale config is far more common than a forged one.
 
-**It emits both standards in substance, from one parse.** Producing a CycloneDX
-1.6 `modelCard` and an SPDX 3.0.1 `ai_AIPackage` with datasets, licences and
-per-file hashes — from the same read, so the two documents cannot disagree — is
-still unoccupied. Tools that emit both tend to have one of them as a stub, or to
-stop at SPDX 2.3, which has no AI profile at all.
+Tools that do compare declarations against weights generally do it against the
+Hugging Face API. Tessera does it from local bytes, which is the case that
+matters in an air-gapped enclave, and it is why the comparison happens in the
+parser rather than in a hub client.
 
-Being an embeddable zero-dependency library rather than a CLI or a container
-pipeline is the third difference, and the one that matters most if you are
-putting this inside something else.
+**It emits both standards from a single parse,** so the CycloneDX 1.6
+`modelCard` and the SPDX 3.0.1 `ai_AIPackage` describe the same read and cannot
+disagree with each other about the same artifact.
+
+**It is a library first.** Zero third-party dependencies, no network, no output
+of its own — so it embeds inside another program rather than being shelled out
+to. That is the difference that matters most if you are putting it inside
+something else, and it is pinned by tests rather than asserted.
+
+Related work worth knowing about: [`airom`](https://github.com/airomhq/airom)
+also parses local model binaries in Go and emits both formats, with a broader
+discovery surface across code, containers and Kubernetes.
 
 ## One analyser, four shapes
 
