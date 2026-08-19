@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -79,5 +81,58 @@ func TestParseSafetensorsBadHeaderLen(t *testing.T) {
 	}
 	if !hasFinding(a, "TESS-ST-002") {
 		t.Errorf("expected invalid-header finding, got %+v", a.Findings)
+	}
+}
+
+// TestMaxHeaderBoundIsHonoured pins that a caller's memory ceiling actually
+// reaches this parser. It previously did not: the option documented a cap on
+// bytes held in memory, but safetensors used a hard-coded limit and ignored it,
+// so an embedder that set a 16 MB ceiling could still be handed a 100 MB header.
+func TestMaxHeaderBoundIsHonoured(t *testing.T) {
+	// A header comfortably under the reference cap but over the caller's.
+	body := map[string]any{}
+	for i := 0; i < 400; i++ {
+		body[strings.Repeat("t", 40)+strconv.Itoa(i)] = map[string]any{
+			"dtype": "F16", "shape": []int{1}, "data_offsets": []int{0, 2},
+		}
+	}
+	hb, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(len(hb)))
+	data := append(append(buf, hb...), make([]byte, 2)...)
+
+	path := filepath.Join(t.TempDir(), "big.safetensors")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Under the default ceiling the header parses.
+	a, err := parseSafetensorsBounded(path, stMaxHeader)
+	if err != nil {
+		t.Fatalf("default ceiling: %v", err)
+	}
+	if a.TensorCount != 400 {
+		t.Errorf("default ceiling parsed %d tensors, want 400", a.TensorCount)
+	}
+
+	// With a ceiling below the header size it is refused rather than allocated.
+	a, err = parseSafetensorsBounded(path, 1024)
+	if err != nil {
+		t.Fatalf("low ceiling: %v", err)
+	}
+	if a.TensorCount != 0 {
+		t.Errorf("a header above the caller's ceiling was parsed anyway (%d tensors)", a.TensorCount)
+	}
+	var refused bool
+	for _, f := range a.Findings {
+		if f.ID == "TESS-ST-002" {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Errorf("expected TESS-ST-002 when the header exceeds the ceiling, got %+v", a.Findings)
 	}
 }

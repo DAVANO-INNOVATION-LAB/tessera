@@ -2,6 +2,7 @@ package parse
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -156,12 +157,37 @@ func ParseGGUF(path string) (*model.Artifact, error) {
 	}
 
 	version := g.u32()
+	if g.err != nil {
+		return nil, fmt.Errorf("read header: %w", g.err)
+	}
+	a.SetRaw("gguf.version", strconv.FormatUint(uint64(version), 10))
+
+	// The version has to be checked before anything after it is read, because
+	// it decides the width of every count and length that follows. Version 1
+	// used 32-bit counts where 2 and 3 use 64-bit, so reading a v1 header with
+	// the current layout does not fail — it silently produces enormous garbage
+	// counts, which then trip the implausible-count guard and report a perfectly
+	// ordinary file as a High-severity finding.
+	//
+	// Refusing explicitly is the honest answer. Claiming to have examined a file
+	// that was actually misparsed would be worse than either supporting v1 or
+	// declining it, and v1 predates the format's first public release.
+	if version != 2 && version != 3 {
+		a.AddFinding(model.Finding{
+			ID: "TESS-GGUF-008", Title: "Unsupported GGUF version", Severity: "Medium", Category: "model",
+			Location: path,
+			Description: fmt.Sprintf("the file declares GGUF version %d; this parser reads versions 2 and 3. "+
+				"Its layout differs, so nothing beyond the header was examined and the artifact has not "+
+				"been cleared.", version),
+		})
+		return a, nil
+	}
+
 	tensorCount := g.u64()
 	kvCount := g.u64()
 	if g.err != nil {
 		return nil, fmt.Errorf("read header: %w", g.err)
 	}
-	a.SetRaw("gguf.version", strconv.FormatUint(uint64(version), 10))
 
 	if kvCount > ggMaxKV {
 		a.AddFinding(model.Finding{
@@ -359,12 +385,12 @@ func applyGGUFMetadata(a *model.Artifact, kv map[string]string, kvList map[strin
 	a.Identity.Organization = kv["general.organization"]
 	a.Identity.Description = kv["general.description"]
 	a.Identity.UUID = kv["general.uuid"]
-	a.Identity.URL = firstNonEmpty(kv["general.url"], kv["general.repo_url"])
+	a.Identity.URL = cmp.Or(kv["general.url"], kv["general.repo_url"])
 	a.Identity.RepoURL = kv["general.repo_url"]
 	a.Identity.DOI = kv["general.doi"]
 
 	// License: prefer the explicit name, fall back to the id-bearing key.
-	if lic := firstNonEmpty(kv["general.license"], kv["general.license.name"]); lic != "" {
+	if lic := cmp.Or(kv["general.license"], kv["general.license.name"]); lic != "" {
 		a.Licenses = append(a.Licenses, model.License{
 			Raw: lic,
 			URL: kv["general.license.link"],
@@ -489,15 +515,6 @@ func ggmlTypeName(t uint32) string {
 		return n
 	}
 	return "ggml_type=" + strconv.FormatUint(uint64(t), 10)
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // sortIndexKeys orders the numeric index keys of a general.<group>.<n>.<field>

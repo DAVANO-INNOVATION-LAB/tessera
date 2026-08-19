@@ -1,0 +1,233 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:9dc0c034-c5fc-44cf-91a1-ac37141c4032",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-08-18T12:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "tessera",
+          "version": "golden",
+          "publisher": "Davano Innovation Lab"
+        }
+      ]
+    },
+    "component": {
+      "type": "machine-learning-model",
+      "bom-ref": "urn:tessera:model:aaaaaaaaaaaaaaaa",
+      "name": "Golden-Test-Model",
+      "version": "2.1",
+      "purl": "pkg:huggingface/example-org/golden-test-model@abc123",
+      "description": "a model used only by tests",
+      "publisher": "A. Author",
+      "supplier": {
+        "name": "Example Org"
+      },
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://huggingface.co/example-org/golden-test-model"
+        }
+      ],
+      "modelCard": {
+        "modelParameters": {
+          "architectureFamily": "llama",
+          "modelArchitecture": "llama",
+          "datasets": [
+            {
+              "type": "dataset",
+              "name": "the-stack"
+            },
+            {
+              "type": "dataset",
+              "name": "wikipedia"
+            }
+          ]
+        },
+        "properties": [
+          {
+            "name": "tessera:quantization",
+            "value": "Q4_K_M"
+          },
+          {
+            "name": "tessera:parameterCount",
+            "value": "8B"
+          },
+          {
+            "name": "hyperparameter:attention.head_count",
+            "value": "32"
+          },
+          {
+            "name": "hyperparameter:block_count",
+            "value": "32"
+          },
+          {
+            "name": "hyperparameter:context_length",
+            "value": "8192"
+          },
+          {
+            "name": "hyperparameter:embedding_length",
+            "value": "4096"
+          }
+        ]
+      },
+      "pedigree": {
+        "ancestors": [
+          {
+            "type": "machine-learning-model",
+            "name": "Base-One",
+            "externalReferences": [
+              {
+                "type": "vcs",
+                "url": "https://huggingface.co/example-org/base-one"
+              }
+            ]
+          },
+          {
+            "type": "machine-learning-model",
+            "name": "Base Two"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "tessera:format",
+          "value": "gguf"
+        },
+        {
+          "name": "tessera:framework",
+          "value": "gguf/ggml"
+        },
+        {
+          "name": "tessera:uuid",
+          "value": "6f0b7a1e-0000-4000-8000-000000000000"
+        },
+        {
+          "name": "tessera:producer",
+          "value": "quantizer 1.0"
+        },
+        {
+          "name": "tessera:tensorCount",
+          "value": "291"
+        },
+        {
+          "name": "onnx:opset:ai.onnx",
+          "value": "18"
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "file",
+      "bom-ref": "urn:tessera:file:bbbbbbbbbbbbbbbb",
+      "name": "model-00002-of-00002.gguf",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "properties": [
+        {
+          "name": "tessera:role",
+          "value": "shard"
+        },
+        {
+          "name": "tessera:size",
+          "value": "2048"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "urn:tessera:file:cccccccccccccccc",
+      "name": "weights.bin",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ],
+      "properties": [
+        {
+          "name": "tessera:role",
+          "value": "external-data"
+        },
+        {
+          "name": "tessera:size",
+          "value": "128"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "urn:tessera:op-domain:com.example.custom",
+      "name": "com.example.custom",
+      "properties": [
+        {
+          "name": "tessera:role",
+          "value": "custom-operator-domain"
+        },
+        {
+          "name": "tessera:note",
+          "value": "resolves to an out-of-tree native kernel at load time"
+        }
+      ]
+    }
+  ],
+  "vulnerabilities": [
+    {
+      "id": "TESS-GGUF-010",
+      "source": {
+        "name": "Tessera"
+      },
+      "ratings": [
+        {
+          "severity": "high",
+          "method": "other"
+        }
+      ],
+      "description": "Executable chat template — jinja control logic",
+      "affects": [
+        {
+          "ref": "urn:tessera:model:aaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    {
+      "id": "TESS-LIC-001",
+      "source": {
+        "name": "Tessera"
+      },
+      "ratings": [
+        {
+          "severity": "low",
+          "method": "other"
+        }
+      ],
+      "description": "No license disclosed — ",
+      "affects": [
+        {
+          "ref": "urn:tessera:model:aaaaaaaaaaaaaaaa"
+        }
+      ]
+    }
+  ]
+}

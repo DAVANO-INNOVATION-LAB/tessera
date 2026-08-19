@@ -1,0 +1,201 @@
+{
+  "@context": "https://spdx.org/rdf/3.0.1/spdx-context.jsonld",
+  "@graph": [
+    {
+      "@id": "_:creationinfo",
+      "created": "2026-08-18T12:00:00Z",
+      "createdBy": [
+        "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#tool-tessera"
+      ],
+      "createdUsing": [
+        "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#tool-tessera"
+      ],
+      "specVersion": "3.0.1",
+      "type": "CreationInfo"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "name": "tessera golden",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#tool-tessera",
+      "type": "Tool"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "name": "Example Org",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#supplier",
+      "type": "Organization"
+    },
+    {
+      "ai_hyperparameter": [
+        {
+          "key": "quantization",
+          "type": "DictionaryEntry",
+          "value": "Q4_K_M"
+        },
+        {
+          "key": "parameterCount",
+          "type": "DictionaryEntry",
+          "value": "8B"
+        },
+        {
+          "key": "attention.head_count",
+          "type": "DictionaryEntry",
+          "value": "32"
+        },
+        {
+          "key": "block_count",
+          "type": "DictionaryEntry",
+          "value": "32"
+        },
+        {
+          "key": "context_length",
+          "type": "DictionaryEntry",
+          "value": "8192"
+        },
+        {
+          "key": "embedding_length",
+          "type": "DictionaryEntry",
+          "value": "4096"
+        }
+      ],
+      "ai_limitation": "[High] TESS-GGUF-010: Executable chat template\n[Low] TESS-LIC-001: No license disclosed",
+      "ai_typeOfModel": [
+        "llama"
+      ],
+      "creationInfo": "_:creationinfo",
+      "description": "a model used only by tests",
+      "name": "Golden-Test-Model",
+      "software_downloadLocation": "https://huggingface.co/example-org/golden-test-model",
+      "software_packageVersion": "2.1",
+      "software_primaryPurpose": "other",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#model",
+      "suppliedBy": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#supplier",
+      "type": "ai_AIPackage",
+      "verifiedUsing": [
+        {
+          "algorithm": "sha256",
+          "hashValue": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "type": "Hash"
+        }
+      ]
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "name": "model-00002-of-00002.gguf",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#file-bbbbbbbbbbbbbbbb",
+      "type": "software_File",
+      "verifiedUsing": [
+        {
+          "algorithm": "sha256",
+          "hashValue": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "type": "Hash"
+        }
+      ]
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "name": "weights.bin",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#file-cccccccccccccccc",
+      "type": "software_File",
+      "verifiedUsing": [
+        {
+          "algorithm": "sha256",
+          "hashValue": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "type": "Hash"
+        }
+      ]
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "dataset_datasetType": [
+        "other"
+      ],
+      "name": "the-stack",
+      "software_downloadLocation": "NOASSERTION",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#dataset-the-stack-0",
+      "type": "dataset_DatasetPackage"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "dataset_datasetType": [
+        "other"
+      ],
+      "name": "wikipedia",
+      "software_downloadLocation": "NOASSERTION",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#dataset-wikipedia-1",
+      "type": "dataset_DatasetPackage"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "name": "Base-One",
+      "software_downloadLocation": "https://huggingface.co/example-org/base-one",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#basemodel-Base-One-0",
+      "type": "ai_AIPackage"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "name": "Base Two",
+      "software_downloadLocation": "NOASSERTION",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#basemodel-Base-Two-1",
+      "type": "ai_AIPackage"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "simplelicensing_licenseExpression": "Apache-2.0",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#license",
+      "type": "simplelicensing_LicenseExpression"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "from": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#model",
+      "relationshipType": "contains",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#rel-file-bbbbbbbbbbbbbbbb",
+      "to": [
+        "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#file-bbbbbbbbbbbbbbbb"
+      ],
+      "type": "Relationship"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "from": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#model",
+      "relationshipType": "contains",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#rel-file-cccccccccccccccc",
+      "to": [
+        "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#file-cccccccccccccccc"
+      ],
+      "type": "Relationship"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "from": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#model",
+      "relationshipType": "trainedOn",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#rel-trainedon",
+      "to": [
+        "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#dataset-the-stack-0",
+        "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#dataset-wikipedia-1"
+      ],
+      "type": "Relationship"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "from": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#model",
+      "relationshipType": "descendantOf",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#rel-ancestry",
+      "to": [
+        "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#basemodel-Base-One-0",
+        "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#basemodel-Base-Two-1"
+      ],
+      "type": "Relationship"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "from": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#model",
+      "relationshipType": "hasDeclaredLicense",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#rel-license",
+      "to": [
+        "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#license"
+      ],
+      "type": "Relationship"
+    }
+  ]
+}

@@ -1,8 +1,10 @@
 package parse
 
 import (
+	"cmp"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -198,7 +200,7 @@ func parseONNXBounded(path string, maxSize int64) (*model.Artifact, error) {
 
 	if len(externalDataRefs) > 0 {
 		sort.Strings(externalDataRefs)
-		a.SetRaw("onnx.external_data", strings.Join(dedupe(externalDataRefs), ", "))
+		a.SetRaw("onnx.external_data", strings.Join(slices.Compact(externalDataRefs), ", "))
 	}
 	// Stash the traversal signal for the scan pass to escalate; keep the parse's
 	// job to reporting what is structurally present.
@@ -351,13 +353,13 @@ func applyONNXMetadata(a *model.Artifact, meta map[string]string) {
 		a.SetRaw("metadata_props."+k, v)
 	}
 	if a.Identity.Name == "" {
-		a.Identity.Name = firstNonEmpty(meta["model_name"], meta["name"])
+		a.Identity.Name = cmp.Or(meta["model_name"], meta["name"])
 	}
 	if a.Identity.Author == "" {
-		a.Identity.Author = firstNonEmpty(meta["author"], meta["organization"])
+		a.Identity.Author = cmp.Or(meta["author"], meta["organization"])
 	}
 	// ONNX has no standard license field; producers who care put it here.
-	if lic := firstNonEmpty(meta["license"], meta["licenses"]); lic != "" {
+	if lic := cmp.Or(meta["license"], meta["licenses"]); lic != "" {
 		a.Licenses = append(a.Licenses, model.License{Raw: lic})
 	}
 	if a.Identity.Description == "" {
@@ -398,17 +400,4 @@ func isTraversal(p string) bool {
 
 func isDriveLetter(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-}
-
-func dedupe(items []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, s := range items {
-		if seen[s] {
-			continue
-		}
-		seen[s] = true
-		out = append(out, s)
-	}
-	return out
 }

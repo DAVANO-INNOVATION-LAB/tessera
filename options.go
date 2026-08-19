@@ -47,10 +47,18 @@ func WithoutHashing() Option {
 	return func(c *config) { c.skipHashing = true }
 }
 
-// WithMaxFileSize caps how many bytes any single file may occupy in memory
-// during parsing. ONNX is the case that matters: it is protobuf, so the message
-// is walked in memory, and a model larger than the cap is reported as a finding
-// rather than being loaded. Zero or negative restores the default.
+// WithMaxFileSize caps how many bytes a single file may occupy in memory during
+// parsing.
+//
+// It applies to the two formats that hold anything in memory: ONNX, which is
+// protobuf and must be walked in memory, so a model past the cap is reported as
+// a finding rather than loaded; and safetensors, whose JSON header is
+// attacker-controlled and may legitimately reach a hundred megabytes. GGUF is
+// read as a stream and is bounded by its own per-field caps instead.
+//
+// The safetensors header is additionally capped at the reference
+// implementation's limit, so a value above that lowers nothing and is ignored.
+// Zero or negative restores the default.
 func WithMaxFileSize(n int64) Option {
 	return func(c *config) {
 		if n > 0 {

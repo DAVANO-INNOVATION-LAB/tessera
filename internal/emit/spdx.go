@@ -1,11 +1,16 @@
 package emit
 
 import (
+	"cmp"
+	"maps"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/strutil"
 )
 
 // SPDX renders the artifact as an SPDX 3.0.1 JSON-LD document using the AI and
@@ -46,12 +51,12 @@ func SPDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
 		"creationInfo":              "_:creationinfo",
 		"name":                      a.Identity.Name,
 		"software_primaryPurpose":   "other",
-		"software_downloadLocation": firstNonEmpty(a.Identity.URL, a.Identity.RepoURL, "NOASSERTION"),
+		"software_downloadLocation": cmp.Or(a.Identity.URL, a.Identity.RepoURL, "NOASSERTION"),
 	}
 	if a.Identity.Version != "" {
 		aiPkg["software_packageVersion"] = a.Identity.Version
 	}
-	if sup := firstNonEmpty(a.Identity.Organization, a.Identity.Author); sup != "" {
+	if sup := cmp.Or(a.Identity.Organization, a.Identity.Author); sup != "" {
 		aiPkg["suppliedBy"] = id("supplier")
 		graph = append(graph, map[string]any{
 			"type":         "Organization",
@@ -82,7 +87,7 @@ func SPDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
 	if a.Params.ParameterCount != "" {
 		hp = append(hp, entry("parameterCount", a.Params.ParameterCount))
 	}
-	for _, k := range sortedKeys(a.Params.Hyperparameters) {
+	for _, k := range slices.Sorted(maps.Keys(a.Params.Hyperparameters)) {
 		hp = append(hp, entry(k, a.Params.Hyperparameters[k]))
 	}
 	if len(hp) > 0 {
@@ -115,7 +120,7 @@ func SPDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
 	// Datasets as dataset packages, linked by a trainedOn relationship.
 	var datasetIDs []string
 	for i, ds := range a.Lineage.Datasets {
-		dsID := id("dataset-" + sanitize(ds.Name) + "-" + itoa(i))
+		dsID := id("dataset-" + strutil.Slug(ds.Name, "x") + "-" + strconv.Itoa(i))
 		datasetIDs = append(datasetIDs, dsID)
 		graph = append(graph, map[string]any{
 			"type":         "dataset_DatasetPackage",
@@ -140,14 +145,14 @@ func SPDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
 	// Base models as ancestry.
 	var ancestorIDs []string
 	for i, ref := range a.Lineage.BaseModels {
-		bmID := id("basemodel-" + sanitize(ref.Name) + "-" + itoa(i))
+		bmID := id("basemodel-" + strutil.Slug(ref.Name, "x") + "-" + strconv.Itoa(i))
 		ancestorIDs = append(ancestorIDs, bmID)
 		graph = append(graph, map[string]any{
 			"type":                      "ai_AIPackage",
 			"spdxId":                    bmID,
 			"creationInfo":              "_:creationinfo",
 			"name":                      ref.Name,
-			"software_downloadLocation": firstNonEmpty(ref.URL, "NOASSERTION"),
+			"software_downloadLocation": cmp.Or(ref.URL, "NOASSERTION"),
 		})
 	}
 	if len(ancestorIDs) > 0 {
@@ -233,23 +238,4 @@ func firstResolvedLicense(a *model.Artifact) string {
 		}
 	}
 	return ""
-}
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var b []byte
-	neg := i < 0
-	if neg {
-		i = -i
-	}
-	for i > 0 {
-		b = append([]byte{byte('0' + i%10)}, b...)
-		i /= 10
-	}
-	if neg {
-		b = append([]byte{'-'}, b...)
-	}
-	return string(b)
 }

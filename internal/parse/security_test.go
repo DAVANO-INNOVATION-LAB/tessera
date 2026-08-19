@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -196,7 +197,7 @@ func TestGGUFIndexSortIsNotQuadratic(t *testing.T) {
 	put64(0)
 	put64(entries)
 	for i := 0; i < entries; i++ {
-		str("general.base_model." + itoa(i) + ".name")
+		str("general.base_model." + strconv.Itoa(i) + ".name")
 		put32(uint32(ggString))
 		str("m")
 	}
@@ -216,18 +217,6 @@ func TestGGUFIndexSortIsNotQuadratic(t *testing.T) {
 		t.Errorf("parsing %d lineage entries took %s — the index sort looks quadratic again",
 			entries, elapsed)
 	}
-}
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var b []byte
-	for i > 0 {
-		b = append([]byte{byte('0' + i%10)}, b...)
-		i /= 10
-	}
-	return string(b)
 }
 
 func writeMinimalSafetensors(t *testing.T, path string) {

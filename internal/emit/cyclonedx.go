@@ -6,14 +6,18 @@
 package emit
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/strutil"
 )
 
 // Tool identifies the generator in the BOM metadata.
@@ -75,7 +79,7 @@ func CycloneDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, err
 	for _, dom := range a.Runtime.CustomDomains {
 		doc.Components = append(doc.Components, cdxComponent{
 			Type:   "library",
-			BOMRef: "urn:tessera:op-domain:" + sanitize(dom),
+			BOMRef: "urn:tessera:op-domain:" + strutil.Slug(dom, "x"),
 			Name:   dom,
 			Properties: []cdxProp{
 				{Name: "tessera:role", Value: "custom-operator-domain"},
@@ -111,7 +115,7 @@ func modelComponent(a *model.Artifact, ref string) cdxComponent {
 		Licenses:    licenseChoices(a.Licenses),
 	}
 	if a.Identity.Author != "" || a.Identity.Organization != "" {
-		c.Supplier = &cdxOrg{Name: firstNonEmpty(a.Identity.Organization, a.Identity.Author)}
+		c.Supplier = &cdxOrg{Name: cmp.Or(a.Identity.Organization, a.Identity.Author)}
 	}
 	if a.Identity.Author != "" {
 		c.Publisher = a.Identity.Author
@@ -153,7 +157,7 @@ func modelCard(a *model.Artifact) *cdxModelCard {
 	if a.Params.ParameterCount != "" {
 		props = append(props, cdxProp{Name: "tessera:parameterCount", Value: a.Params.ParameterCount})
 	}
-	for _, k := range sortedKeys(a.Params.Hyperparameters) {
+	for _, k := range slices.Sorted(maps.Keys(a.Params.Hyperparameters)) {
 		props = append(props, cdxProp{Name: "hyperparameter:" + k, Value: a.Params.Hyperparameters[k]})
 	}
 
@@ -397,35 +401,12 @@ func marshal(v any) ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	// simple insertion sort to avoid importing sort here
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j] < keys[j-1]; j-- {
-			keys[j], keys[j-1] = keys[j-1], keys[j]
-		}
-	}
-	return keys
-}
-
 // shortID builds a stable short reference from a hash and a fallback string.
 func shortID(sha, fallback string) string {
 	if len(sha) >= 16 {
 		return sha[:16]
 	}
-	return sanitize(fallback)
+	return strutil.Slug(fallback, "x")
 }
 
 // deterministicUUID derives a stable RFC-4122-shaped UUID (v4 nibbles) from a
@@ -437,21 +418,4 @@ func deterministicUUID(seed string) string {
 	b[12] = '4'                   // version 4
 	b[16] = "89ab"[int(sum[8])%4] // variant
 	return fmt.Sprintf("%s-%s-%s-%s-%s", b[0:8], b[8:12], b[12:16], b[16:20], b[20:32])
-}
-
-func sanitize(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
-			b.WriteRune(r)
-		default:
-			b.WriteRune('-')
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return "x"
-	}
-	return out
 }

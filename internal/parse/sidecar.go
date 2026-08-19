@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -64,7 +65,7 @@ func readConfigJSON(a *model.Artifact, dir string) {
 	} else if cfg.ModelType != "" {
 		a.Declared.Architecture = cfg.ModelType
 	}
-	a.Declared.DType = firstNonEmpty(cfg.TorchDType, cfg.DType)
+	a.Declared.DType = cmp.Or(cfg.TorchDType, cfg.DType)
 	if cfg.QuantConfig != nil && cfg.QuantConfig.QuantMethod != "" {
 		a.Declared.Quantization = cfg.QuantConfig.QuantMethod
 		if cfg.QuantConfig.Bits > 0 {

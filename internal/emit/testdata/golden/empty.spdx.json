@@ -1,0 +1,31 @@
+{
+  "@context": "https://spdx.org/rdf/3.0.1/spdx-context.jsonld",
+  "@graph": [
+    {
+      "@id": "_:creationinfo",
+      "created": "2026-08-18T12:00:00Z",
+      "createdBy": [
+        "https://spdx.org/spdxdocs/tessera/63c50425-71ff-499f-88eb-1ebc8f5468e6#tool-tessera"
+      ],
+      "createdUsing": [
+        "https://spdx.org/spdxdocs/tessera/63c50425-71ff-499f-88eb-1ebc8f5468e6#tool-tessera"
+      ],
+      "specVersion": "3.0.1",
+      "type": "CreationInfo"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "name": "tessera golden",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/63c50425-71ff-499f-88eb-1ebc8f5468e6#tool-tessera",
+      "type": "Tool"
+    },
+    {
+      "creationInfo": "_:creationinfo",
+      "name": "unnamed",
+      "software_downloadLocation": "NOASSERTION",
+      "software_primaryPurpose": "other",
+      "spdxId": "https://spdx.org/spdxdocs/tessera/63c50425-71ff-499f-88eb-1ebc8f5468e6#model",
+      "type": "ai_AIPackage"
+    }
+  ]
+}
