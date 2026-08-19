@@ -163,36 +163,37 @@ func driftShardCount(a *model.Artifact) []model.Finding {
 }
 
 // driftMixedFormats reports weight files in a code-executing format sitting
-// beside a safe one.
+// beside the model.
 //
 // This is a bill-of-materials concern more than a security one: a directory
 // holding both safetensors and a pickle will load whichever the loader prefers,
 // so a document listing only the safe format describes a model that is not
 // necessarily the one that runs.
+//
+// The peer files come from the parse layer's directory observation rather than
+// from the component list, and that distinction is the whole reason this works.
+// A stray pickle is not part of this model, so it is deliberately never added
+// to the component set — hashing it in would describe an artifact nobody
+// shipped. An earlier version of this check read the component list instead,
+// which meant it could never fire on the exact case it describes.
 func driftMixedFormats(a *model.Artifact) []model.Finding {
-	var executable []string
-	for _, f := range a.Files {
-		switch strings.ToLower(extOf(f.Path)) {
-		case ".bin", ".pt", ".pth", ".ckpt", ".pkl", ".pickle":
-			executable = append(executable, f.Path)
-		}
-	}
-	if len(executable) == 0 || a.Format != model.FormatSafetensors {
+	peers := a.Raw["peer.executable_weights"]
+	if peers == "" {
 		return nil
 	}
+	// Only worth saying when the model itself is in a format that does not
+	// execute. Beside a pickle, another pickle is not a surprise.
+	if a.Format != model.FormatSafetensors && a.Format != model.FormatGGUF {
+		return nil
+	}
+	names := strings.Split(peers, ", ")
 	return []model.Finding{{
 		ID: DriftMixedFormats, Title: "Executable weight format beside a safe one",
-		Severity: "Medium", Category: "drift", Location: executable[0],
-		Description: fmt.Sprintf("the model ships safetensors alongside %d file(s) in a format that "+
-			"executes code on load (%s). Which one a loader picks depends on the loader, so this "+
-			"bill of materials may describe a different model than the one that runs.",
-			len(executable), strings.Join(executable, ", ")),
+		Severity: "Medium", Category: "drift", Location: names[0],
+		Description: fmt.Sprintf("the model is %s, and %d file(s) in a format that executes code on "+
+			"load sit in the same directory (%s). Which one a loader picks depends on the loader, so "+
+			"this bill of materials may describe a different model than the one that runs. Those files "+
+			"are not components of this model and were not read.",
+			a.Format, len(names), peers),
 	}}
-}
-
-func extOf(p string) string {
-	if i := strings.LastIndex(p, "."); i >= 0 {
-		return p[i:]
-	}
-	return ""
 }

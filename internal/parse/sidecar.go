@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
 )
@@ -24,9 +26,10 @@ import (
 const maxSidecarBytes = 8 << 20
 
 // readSidecars fills a.Declared from files beside the model.
-func readSidecars(a *model.Artifact, dir string) {
+func readSidecars(a *model.Artifact, dir, primary string) {
 	readConfigJSON(a, dir)
 	readShardIndex(a, dir)
+	notePeerWeightFiles(a, dir, primary)
 }
 
 // hfConfig is the subset of a Hugging Face config.json worth comparing. Field
@@ -140,4 +143,52 @@ func dominantDType(tensors []model.Tensor) string {
 		}
 	}
 	return best
+}
+
+// executableWeightExts are weight formats that run code when they are loaded.
+var executableWeightExts = map[string]bool{
+	".bin": true, ".pt": true, ".pth": true, ".ckpt": true,
+	".pkl": true, ".pickle": true, ".dill": true, ".joblib": true,
+}
+
+// maxSiblingScan bounds the sibling listing so a directory of many thousands of
+// files cannot turn a metadata read into a directory walk of unbounded cost.
+const maxSiblingScan = 4096
+
+// notePeerWeightFiles records weight files in a code-executing format sitting
+// beside the model.
+//
+// These are deliberately NOT added to the component set. They are not part of
+// this model, and hashing them into its file list would describe an artifact
+// that was never shipped. But their presence is worth reporting, because a
+// directory holding both a safe format and a pickle loads whichever the loader
+// prefers — so a bill of materials naming only the safe one may describe a
+// different model than the one that runs.
+//
+// The observation is passed to the scan through Raw, the same way the ONNX
+// traversal signal is: parsing states what it saw, and the scan decides what it
+// means.
+func notePeerWeightFiles(a *model.Artifact, dir, primary string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	primaryBase := filepath.Base(primary)
+
+	var peers []string
+	for i, e := range entries {
+		if i >= maxSiblingScan {
+			break
+		}
+		if e.IsDir() || e.Name() == primaryBase {
+			continue
+		}
+		if executableWeightExts[strings.ToLower(filepath.Ext(e.Name()))] {
+			peers = append(peers, e.Name())
+		}
+	}
+	if len(peers) > 0 {
+		sort.Strings(peers)
+		a.SetRaw("peer.executable_weights", strings.Join(peers, ", "))
+	}
 }
