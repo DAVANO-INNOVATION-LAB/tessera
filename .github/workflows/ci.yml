@@ -1,0 +1,131 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Vulnerability data changes without the code changing, so re-check weekly.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  # Pin a toolchain at or above the latest security patch. govulncheck reports
+  # reachable stdlib advisories, so an old toolchain fails the build honestly.
+  GO_VERSION: "1.26.6"
+
+jobs:
+  build:
+    name: build & test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: gofmt
+        if: runner.os != 'Windows'
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt'd:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: test (race)
+        run: go test ./... -race -coverprofile=cover.out
+
+      - name: coverage summary
+        if: runner.os == 'Linux'
+        run: go tool cover -func=cover.out | tail -1
+
+  guarantees:
+    name: embedding guarantees
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}" }
+      # These three are promises made to every program that imports this
+      # library: no dependencies, no network, no output. Breaking one silently
+      # would be worse than a failing test.
+      - name: no deps, no network, no output
+        run: go test . -run 'TestNo|TestAnalysisWrites' -v
+
+  fuzz:
+    name: fuzz parsers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}" }
+      # The parsers read attacker-controlled bytes, so a short campaign runs on
+      # every change. Seed corpora live in testdata/fuzz and grow when a crash
+      # is found.
+      - name: fuzz
+        run: |
+          for target in FuzzGGUF FuzzSafetensors FuzzONNX FuzzProtowire; do
+            echo "== $target"
+            go test ./internal/parse -run '^$' -fuzz "^${target}$" -fuzztime 60s
+          done
+
+  analysis:
+    name: static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}" }
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          "$(go env GOPATH)/bin/staticcheck" ./...
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+  conformance:
+    name: BOM schema conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      # Validates emitted documents against the PUBLISHED CycloneDX and SPDX
+      # schemas. This caught two defects that were valid JSON and silently
+      # invalid SBOMs, which no amount of self-consistency testing would find.
+      - name: validate against published schemas
+        run: ./scripts/validate-boms.sh
+
+  distribution:
+    name: all distribution shapes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}" }
+      - name: CLI, shared library, WebAssembly
+        run: make all
+      - name: CLI exit codes are the documented ones
+        run: |
+          set +e
+          ./bin/tessera inspect testdata/detector.onnx >/dev/null 2>&1
+          got=$?
+          set -e
+          if [ "$got" -ne 3 ]; then
+            echo "a Critical finding must exit 3, got $got"; exit 1
+          fi
+          echo "critical -> exit 3 (correct)"
