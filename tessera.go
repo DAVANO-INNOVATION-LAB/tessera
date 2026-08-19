@@ -38,6 +38,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/coverage"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/emit"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/parse"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/verify"
@@ -168,4 +169,30 @@ func Verify(ctx context.Context, documentPath, artifactPath string, opts ...Opti
 		return nil, err
 	}
 	return verify.Verify(ctx, doc, art), nil
+}
+
+// Coverage reports which elements of a published minimum-elements standard a
+// given artifact actually supplies.
+//
+// The G7 minimum elements and CERT-In's AIBOM table are the checklists a
+// regulated buyer holds this output against, and neither publisher ships
+// anything that measures conformance against them. Reporting coverage — with
+// the gaps named and the unfillable ones distinguished from the merely missing
+// — is more useful than claiming a percentage, because the gaps are the part a
+// buyer will otherwise discover on their own.
+func Coverage(ctx context.Context, standard string, artifactPath string, opts ...Option) (*CoverageReport, error) {
+	art, err := Analyze(ctx, artifactPath, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return coverage.Assess(coverage.Standard(standard), art)
+}
+
+// CoverageStandards lists the standards Coverage can report against.
+func CoverageStandards() []string {
+	out := make([]string, 0, len(coverage.Standards()))
+	for _, s := range coverage.Standards() {
+		out = append(out, string(s))
+	}
+	return out
 }
