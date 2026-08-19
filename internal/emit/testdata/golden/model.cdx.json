@@ -41,6 +41,10 @@
         {
           "alg": "SHA-384",
           "content": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "alg": "SHA-512",
+          "content": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
         }
       ],
       "externalReferences": [
@@ -141,6 +145,22 @@
           "value": "291"
         },
         {
+          "name": "bsi:component:executable",
+          "value": "non-executable"
+        },
+        {
+          "name": "bsi:component:archive",
+          "value": "no archive"
+        },
+        {
+          "name": "bsi:component:structured",
+          "value": "structured"
+        },
+        {
+          "name": "bsi:component:filename",
+          "value": "model.gguf"
+        },
+        {
           "name": "tessera:primaryFile",
           "value": "model.gguf"
         },
@@ -173,6 +193,10 @@
         {
           "alg": "SHA-384",
           "content": "222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222"
+        },
+        {
+          "alg": "SHA-512",
+          "content": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
         }
       ],
       "properties": [
@@ -183,6 +207,22 @@
         {
           "name": "tessera:size",
           "value": "2048"
+        },
+        {
+          "name": "bsi:component:executable",
+          "value": "non-executable"
+        },
+        {
+          "name": "bsi:component:archive",
+          "value": "no archive"
+        },
+        {
+          "name": "bsi:component:structured",
+          "value": "unstructured"
+        },
+        {
+          "name": "bsi:component:filename",
+          "value": "model-00002-of-00002.gguf"
         }
       ]
     },
@@ -198,6 +238,10 @@
         {
           "alg": "SHA-384",
           "content": "333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333"
+        },
+        {
+          "alg": "SHA-512",
+          "content": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         }
       ],
       "properties": [
@@ -208,6 +252,22 @@
         {
           "name": "tessera:size",
           "value": "128"
+        },
+        {
+          "name": "bsi:component:executable",
+          "value": "non-executable"
+        },
+        {
+          "name": "bsi:component:archive",
+          "value": "no archive"
+        },
+        {
+          "name": "bsi:component:structured",
+          "value": "unstructured"
+        },
+        {
+          "name": "bsi:component:filename",
+          "value": "weights.bin"
         }
       ]
     },

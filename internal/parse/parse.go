@@ -414,16 +414,20 @@ func hashFile(ctx context.Context, path, role string, skipHash bool) (model.File
 	}
 	defer f.Close()
 
-	// One pass, two digests. A second read of a multi-gigabyte model to compute
-	// a second hash would double the most expensive part of the analysis for no
-	// reason; io.MultiWriter feeds both at once.
+	// One pass, three digests. A second read of a multi-gigabyte model to
+	// compute another hash would multiply the most expensive part of the
+	// analysis for no reason; io.MultiWriter feeds all of them at once. On a
+	// 64-bit machine SHA-384 and SHA-512 share the same compression function,
+	// so the third digest costs almost nothing beyond the second.
 	h256 := sha256.New()
 	h384 := sha512.New384()
-	if _, err := io.Copy(io.MultiWriter(h256, h384), ctxReader{ctx: ctx, r: f}); err != nil {
+	h512 := sha512.New()
+	if _, err := io.Copy(io.MultiWriter(h256, h384, h512), ctxReader{ctx: ctx, r: f}); err != nil {
 		return model.FileComponent{}, err
 	}
 	fc.SHA256 = hex.EncodeToString(h256.Sum(nil))
 	fc.SHA384 = hex.EncodeToString(h384.Sum(nil))
+	fc.SHA512 = hex.EncodeToString(h512.Sum(nil))
 	return fc, nil
 }
 

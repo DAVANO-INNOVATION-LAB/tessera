@@ -83,9 +83,9 @@ func goldenArtifact() *model.Artifact {
 			OpsetImports:  []model.Opset{{Domain: "", Version: 18}},
 		},
 		Files: []model.FileComponent{
-			{Path: "model.gguf", Size: 4096, SHA256: strings.Repeat("a", 64), SHA384: strings.Repeat("1", 96), Role: "primary"},
-			{Path: "model-00002-of-00002.gguf", Size: 2048, SHA256: strings.Repeat("b", 64), SHA384: strings.Repeat("2", 96), Role: "shard"},
-			{Path: "weights.bin", Size: 128, SHA256: strings.Repeat("c", 64), SHA384: strings.Repeat("3", 96), Role: "external-data"},
+			{Path: "model.gguf", Size: 4096, SHA256: strings.Repeat("a", 64), SHA384: strings.Repeat("1", 96), SHA512: strings.Repeat("d", 128), Role: "primary"},
+			{Path: "model-00002-of-00002.gguf", Size: 2048, SHA256: strings.Repeat("b", 64), SHA384: strings.Repeat("2", 96), SHA512: strings.Repeat("e", 128), Role: "shard"},
+			{Path: "weights.bin", Size: 128, SHA256: strings.Repeat("c", 64), SHA384: strings.Repeat("3", 96), SHA512: strings.Repeat("f", 128), Role: "external-data"},
 		},
 		TensorCount: 291,
 		Raw:         map[string]string{"general.source.commit": "ABC123"},

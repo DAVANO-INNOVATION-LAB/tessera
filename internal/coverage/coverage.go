@@ -16,6 +16,7 @@ package coverage
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
 )
@@ -30,6 +31,17 @@ const (
 	// CERTIn is CERT-In's "Technical Guidelines on SBOM, QBOM & CBOM, AIBOM and
 	// HBOM" v2.0, section 9, 9 July 2025.
 	CERTIn Standard = "cert-in"
+	// BSI is BSI TR-03183-2 "Cyber Resilience Requirements for Manufacturers
+	// and Products — Part 2: Software Bill of Materials (SBOM)", v2.1.0.
+	//
+	// It is here because it is the only published technical specification of
+	// what a Cyber Resilience Act SBOM must contain. The CRA itself requires
+	// one "in a commonly used and machine-readable format covering at the very
+	// least the top-level dependencies" and stops there; the Article 13(24)
+	// implementing act that would define the format has not been adopted, and
+	// no harmonised standard has been cited in the Official Journal. Until one
+	// is, this document is what an assessor has to work from.
+	BSI Standard = "bsi"
 )
 
 // Status of one element.
@@ -69,7 +81,7 @@ type Report struct {
 }
 
 // Standards lists what can be reported against.
-func Standards() []Standard { return []Standard{G7, CERTIn} }
+func Standards() []Standard { return []Standard{G7, CERTIn, BSI} }
 
 // Assess reports coverage of a standard by an artifact.
 func Assess(std Standard, a *model.Artifact) (*Report, error) {
@@ -78,8 +90,10 @@ func Assess(std Standard, a *model.Artifact) (*Report, error) {
 		return assess(G7, "G7 SBOM for AI — Minimum Elements (12 May 2026)", g7Elements(a)), nil
 	case CERTIn:
 		return assess(CERTIn, "CERT-In Technical Guidelines v2.0 §9 — AIBOM (9 July 2025)", certInElements(a)), nil
+	case BSI:
+		return assess(BSI, "BSI TR-03183-2 v2.1.0 — SBOM required data fields", bsiElements(a)), nil
 	}
-	return nil, fmt.Errorf("unknown standard %q (known: g7, cert-in)", std)
+	return nil, fmt.Errorf("unknown standard %q (known: g7, cert-in, bsi)", std)
 }
 
 func assess(std Standard, title string, els []Element) *Report {
@@ -215,4 +229,151 @@ func certInElements(a *model.Artifact) []Element {
 		// tessera-sign produces.
 		have("AIBOM", "Attestations", integrityStatement(primary)),
 	}
+}
+
+// bsiElements maps BSI TR-03183-2 §5.2 onto what was parsed.
+//
+// Two things make this table different from the AI-specific ones above.
+//
+// First, it is not an AI standard at all — it is a general SBOM specification,
+// and a model artifact enters it as an ordinary component. That is the point:
+// the Cyber Resilience Act's SBOM obligation is technology-neutral, so the
+// question an assessor asks is not "is this a good AIBOM" but "is this an SBOM
+// at all". A tool that only measures itself against AI checklists never answers
+// that.
+//
+// Second, three of its required fields are determinations rather than
+// disclosures. §5.2.2 requires an executable, an archive and a structured
+// property on every component, and no model file states any of them. They are
+// computed from what the format does — see model.ExecutableProperty — and
+// written into the document under BSI's own CycloneDX property names, so the
+// coverage claimed here is coverage the emitted document actually carries.
+func bsiElements(a *model.Artifact) []Element {
+	primary := a.PrimaryFile()
+	var els []Element
+
+	// §5.2.1 — required data fields for the SBOM itself.
+	els = append(els,
+		have("SBOM", "Creator of the SBOM", "https://github.com/DAVANO-INNOVATION-LAB/tessera"),
+		have("SBOM", "Timestamp", "generated per document, UTC"),
+	)
+
+	// §5.2.3 — additional data fields for the SBOM itself.
+	els = append(els, have("SBOM", "SBOM-URI", "urn:uuid, derived from the primary file digest"))
+
+	// §4 — format. CycloneDX 1.6 or higher, SPDX 3.0.1 or higher, and only
+	// officially released versions. This row is worth stating because it is
+	// the one most existing SBOM tooling fails: an SPDX 2.3 document is not
+	// conformant no matter how complete its fields are.
+	els = append(els, have("SBOM", "Format and version",
+		"CycloneDX 1.6 and SPDX 3.0.1 — the minimum versions §4 permits"))
+
+	// §5.2.2 — required data fields for each component.
+	els = append(els,
+		// §5.2.2 does not ask who made the component, it asks for a contact:
+		// "email address of the entity that created and, if applicable,
+		// maintains the respective component. If no email address is available
+		// this MUST be a Uniform Resource Locator (URL)". A bare organization
+		// name is not either of those, so it does not populate this element
+		// however well it identifies the publisher.
+		have("Component", "Component creator", creatorContact(a)),
+		have("Component", "Component name", a.Identity.Name),
+		have("Component", "Component version", a.Identity.Version),
+		have("Component", "Filename of the component", primary.Path),
+		// The one element a model artifact structurally cannot supply, and the
+		// reason a model bill of materials has to be merged rather than used
+		// alone.
+		dependencyElement(a),
+		have("Component", "Distribution licences", licenseOf(a)),
+		have("Component", "Hash value of the deployable component (SHA-512)", primary.SHA512),
+		have("Component", "Executable property", a.ExecutableProperty()),
+		have("Component", "Archive property", a.ArchiveProperty()),
+		have("Component", "Structured property", a.StructuredProperty()),
+	)
+
+	// §5.2.4 — additional data fields, required where they exist.
+	els = append(els,
+		have("Component", "Source code URI", a.Identity.RepoURL),
+		have("Component", "URI of the deployable form", firstOf(a.Identity.URL, a.Identity.RepoURL)),
+		// The emitted document carries a purl when the model discloses a
+		// Hugging Face repository, and omits one otherwise — a purl pointing at
+		// the wrong repository is a false provenance claim. So the element is
+		// reported from the handles that were actually disclosed rather than
+		// from a purl that may not have been derivable.
+		have("Component", "Other unique identifiers",
+			firstOf(a.Identity.DOI, a.Identity.UUID, a.Identity.RepoURL)),
+		have("Component", "Original licences", originalLicense(a)),
+	)
+
+	return els
+}
+
+// dependencyElement reports the component set and why it is not the whole
+// answer.
+//
+// §5.1 requires recursive dependency resolution "on each path downward at
+// least up to and including the first component that is outside the scope of
+// delivery", and §5.2.2 requires that "the completeness of this enumeration
+// MUST be clearly indicated". The first half is a build-time fact: what a
+// model depends on to run — the framework, the kernel libraries, the
+// interpreter — is a property of the delivery item, not of a weights file, and
+// no amount of parsing recovers it.
+//
+// So this is reported out of scope even when the artifact's own file set is
+// fully enumerated, and the enumeration is carried in the note. Marking it
+// populated would state that a model bill of materials alone satisfies the
+// CRA's dependency requirement, which it does not: it has to be merged with
+// the SBOM of the thing that loads it.
+func dependencyElement(a *model.Artifact) Element {
+	return Element{
+		Cluster: "Component",
+		Name:    "Dependencies on other components",
+		Status:  OutOfScope,
+		Note: "recursive resolution to the edge of the delivery scope is a build-time " +
+			"fact; a weights file does not record the runtime that loads it. " +
+			componentSetStatement(a) +
+			" Merge this document with the delivery item's SBOM to satisfy §5.1.",
+	}
+}
+
+// componentSetStatement describes what the artifact's own component set does
+// cover, and whether that enumeration is itself complete.
+func componentSetStatement(a *model.Artifact) string {
+	n := len(a.Files)
+	if n == 0 {
+		return "No component files were enumerated."
+	}
+	if a.HasFinding("TESS-FILE-002") {
+		return fmt.Sprintf("%d of the artifact's own files are enumerated and the set is "+
+			"incomplete, see TESS-FILE-002.", n)
+	}
+	if extra := len(a.Runtime.CustomDomains); extra > 0 {
+		return fmt.Sprintf("The artifact's own set of %d files and %d custom operator "+
+			"domains is complete.", n, extra)
+	}
+	return fmt.Sprintf("The artifact's own set of %d files is complete.", n)
+}
+
+// creatorContact returns a contact of the shape §5.2.2 requires — an email
+// address, or a URL where none is available — and nothing else.
+func creatorContact(a *model.Artifact) string {
+	for _, candidate := range []string{a.Identity.Author, a.Identity.Organization} {
+		if strings.Contains(candidate, "@") && strings.Contains(candidate, ".") {
+			return candidate
+		}
+	}
+	return firstOf(a.Identity.RepoURL, a.Identity.URL)
+}
+
+// originalLicense is the licence as the creator assigned it, before resolution
+// to an SPDX identifier. TR-03183-2 §3.2.8 distinguishes original from
+// distribution licences, and collapsing them would lose the distinction the
+// guideline draws.
+func originalLicense(a *model.Artifact) string {
+	for _, l := range a.Licenses {
+		if l.Raw != "" {
+			return l.Raw
+		}
+	}
+	return ""
 }

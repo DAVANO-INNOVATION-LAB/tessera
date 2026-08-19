@@ -178,6 +178,15 @@ type FileComponent struct {
 	// emitted: one for interoperability, one for assurance, computed in a single
 	// pass over the file.
 	SHA384 string `json:"sha384,omitempty"`
+	// SHA512 is the digest BSI TR-03183-2 names. Its §5.2.2 requires the hash
+	// value of a deployable component "as SHA-512", not as a digest of at
+	// least that strength — so a document carrying SHA-384 is stronger by
+	// CNSA's measure and still not conformant by BSI's. With no Commission
+	// implementing act under CRA Article 13(24) and no cited harmonised
+	// standard, TR-03183-2 is the operative specification of what a CRA SBOM
+	// has to contain, which makes this a required field rather than a third
+	// opinion.
+	SHA512 string `json:"sha512,omitempty"`
 	// Role is primary, shard, or external-data.
 	Role string `json:"role,omitempty"`
 }

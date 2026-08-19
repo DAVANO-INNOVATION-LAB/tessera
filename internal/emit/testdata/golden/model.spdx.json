@@ -112,6 +112,11 @@
           "algorithm": "sha384",
           "hashValue": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
           "type": "Hash"
+        },
+        {
+          "algorithm": "sha512",
+          "hashValue": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "type": "Hash"
         }
       ]
     },
@@ -130,6 +135,11 @@
           "algorithm": "sha384",
           "hashValue": "222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222",
           "type": "Hash"
+        },
+        {
+          "algorithm": "sha512",
+          "hashValue": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "type": "Hash"
         }
       ]
     },
@@ -147,6 +157,11 @@
         {
           "algorithm": "sha384",
           "hashValue": "333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333",
+          "type": "Hash"
+        },
+        {
+          "algorithm": "sha512",
+          "hashValue": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           "type": "Hash"
         }
       ]
