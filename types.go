@@ -115,7 +115,7 @@ const (
 
 // File roles, as set on FileComponent.Role.
 const (
-	RolePrimary      = "primary"
-	RoleShard        = "shard"
-	RoleExternalData = "external-data"
+	RolePrimary      = model.RolePrimary
+	RoleShard        = model.RoleShard
+	RoleExternalData = model.RoleExternalData
 )

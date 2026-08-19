@@ -24,6 +24,9 @@ func hashAlgorithms(f model.FileComponent) string {
 	if f.SHA384 != "" {
 		algs = append(algs, "sha-384")
 	}
+	if f.SHA512 != "" {
+		algs = append(algs, "sha-512")
+	}
 	return strings.Join(algs, ", ")
 }
 
