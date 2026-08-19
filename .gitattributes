@@ -1,0 +1,10 @@
+# Golden files are byte-exact fixtures: the test compares the serializer's
+# output to them literally, so any line-ending translation on checkout makes
+# them fail on that platform alone. Windows checkouts convert LF to CRLF by
+# default, which is invisible in a diff and produced exactly that failure.
+internal/emit/testdata/golden/*.json -text
+
+# Model fixtures are binary; never translate them.
+testdata/*.gguf  binary
+testdata/*.onnx  binary
+testdata/*.safetensors binary
