@@ -135,8 +135,12 @@ func TestEveryDriftFindingIsReachable(t *testing.T) {
 			})
 		}},
 		{"TESS-DRIFT-005", func(t *testing.T, dir string) {
-			// An architecture is declared; safetensors records none to check it against.
-			buildSafetensors(t, filepath.Join(dir, "model.safetensors"), "F16", []int{4, 4})
+			// A GGUF that omits general.architecture while the config declares
+			// one. GGUF is the only format that records an architecture, so it
+			// is the only one where failing to is worth reporting — on
+			// safetensors and ONNX the claim is unverifiable by construction.
+			buildGGUF(t, filepath.Join(dir, "m.gguf"),
+				map[string]string{"general.name": "m"}, nil, []uint64{8, 8})
 			writeJSON(t, filepath.Join(dir, "config.json"),
 				map[string]any{"architectures": []string{"LlamaForCausalLM"}})
 		}},

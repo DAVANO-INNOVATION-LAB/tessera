@@ -63,8 +63,11 @@ that is present is reported as **not verified** — an undocumented component is
 the shape a smuggled payload takes.
 
 **It reports its own coverage.** `tessera coverage` maps the output against the
-**G7 SBOM for AI minimum elements** (May 2026) and **CERT-In's AIBOM table**,
-and says which rows it fills. It distinguishes an element this artifact happens
+**G7 SBOM for AI minimum elements** (May 2026), **CERT-In's AIBOM table**, and
+**BSI TR-03183-2** — the only published technical specification of what a Cyber
+Resilience Act SBOM must contain, since the Article 13(24) implementing act has
+not been adopted and no harmonised standard has been cited in the Official
+Journal. It says which rows it fills. It distinguishes an element this artifact happens
 not to disclose from one no static parse can ever supply — training properties,
 dataset hashes, benchmark results — and gives the reason for each. Those
 checklists are what a regulated buyer will hold the output against, and neither
@@ -174,7 +177,7 @@ tessera bom model.onnx --format spdx --reproducible
 tessera verify model.cdx.json ./model-dir
 
 # Report coverage against a published minimum-elements standard
-tessera coverage ./model-dir --standard g7
+tessera coverage ./model-dir --standard g7      # or cert-in, or bsi
 ```
 
 `bom` accepts a single file or a directory containing one model (it resolves
