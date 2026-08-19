@@ -102,15 +102,36 @@ func TestDriftShardCount(t *testing.T) {
 }
 
 func TestDriftMixedFormats(t *testing.T) {
+	// The peer file arrives as a directory observation from the parse layer,
+	// not as a component. That distinction is load-bearing: a stray pickle is
+	// not part of this model, so it is never added to the component set — and
+	// an earlier version of this check looked at the component set, which meant
+	// it could never fire on the case it describes.
 	mixed := &model.Artifact{
 		Format: model.FormatSafetensors,
-		Files: []model.FileComponent{
-			{Path: "model.safetensors", Role: "primary"},
-			{Path: "pytorch_model.bin", Role: "shard"},
-		},
+		Raw:    map[string]string{"peer.executable_weights": "pytorch_model.bin"},
 	}
 	if !hasIn(driftIDs(mixed), DriftMixedFormats) {
 		t.Error("a pickle beside safetensors should be reported")
+	}
+
+	// GGUF is also a format that does not execute, so the same concern applies.
+	gguf := &model.Artifact{
+		Format: model.FormatGGUF,
+		Raw:    map[string]string{"peer.executable_weights": "model.ckpt"},
+	}
+	if !hasIn(driftIDs(gguf), DriftMixedFormats) {
+		t.Error("a checkpoint beside a GGUF should be reported")
+	}
+
+	// Beside a pickle, another pickle is not news — only worth saying when the
+	// model itself is in a format that does not execute.
+	onnx := &model.Artifact{
+		Format: model.FormatONNX,
+		Raw:    map[string]string{"peer.executable_weights": "pytorch_model.bin"},
+	}
+	if hasIn(driftIDs(onnx), DriftMixedFormats) {
+		t.Error("ONNX is not one of the safe-weights formats this finding is about")
 	}
 
 	clean := &model.Artifact{

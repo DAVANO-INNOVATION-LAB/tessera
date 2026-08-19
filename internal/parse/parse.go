@@ -117,7 +117,7 @@ func Parse(ctx context.Context, path string, opts Options) (*model.Artifact, err
 
 	// Sidecar claims are read last so they can never overwrite anything
 	// measured from the binary; they land in a separate part of the record.
-	readSidecars(a, dir)
+	readSidecars(a, dir, primary)
 
 	// Resolve every disclosed license string to an SPDX identifier.
 	for i := range a.Licenses {
