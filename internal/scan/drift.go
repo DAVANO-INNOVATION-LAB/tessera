@@ -1,7 +1,10 @@
 package scan
 
 import (
+	"cmp"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
@@ -30,12 +33,13 @@ import (
 
 // Drift finding identifiers.
 const (
-	DriftArchitecture = "TESS-DRIFT-001"
-	DriftDType        = "TESS-DRIFT-002"
-	DriftQuantization = "TESS-DRIFT-003"
-	DriftShardCount   = "TESS-DRIFT-004"
-	DriftUncheckable  = "TESS-DRIFT-005"
-	DriftMixedFormats = "TESS-DRIFT-006"
+	DriftArchitecture   = "TESS-DRIFT-001"
+	DriftDType          = "TESS-DRIFT-002"
+	DriftQuantization   = "TESS-DRIFT-003"
+	DriftShardCount     = "TESS-DRIFT-004"
+	DriftUncheckable    = "TESS-DRIFT-005"
+	DriftMixedFormats   = "TESS-DRIFT-006"
+	DriftParameterCount = "TESS-DRIFT-007"
 )
 
 // analyzeDrift produces the declared-versus-measured findings.
@@ -46,6 +50,7 @@ func analyzeDrift(a *model.Artifact) []model.Finding {
 	out = append(out, driftQuantization(a)...)
 	out = append(out, driftShardCount(a)...)
 	out = append(out, driftMixedFormats(a)...)
+	out = append(out, driftParameterCount(a)...)
 	return out
 }
 
@@ -196,4 +201,108 @@ func driftMixedFormats(a *model.Artifact) []model.Finding {
 			"are not components of this model and were not read.",
 			a.Format, len(names), peers),
 	}}
+}
+
+// driftParameterCount compares a declared parameter count against the sum of
+// every tensor shape in the file.
+//
+// This is the check the declared-versus-measured idea is really for. A size
+// label is a marketing string on the front of the box; the tensor shapes are
+// what is in it. A model advertised as 8B whose weights sum to 3B is a
+// substantive misrepresentation, and it is arithmetic — no judgement, no
+// heuristic, no false-positive class to tune.
+//
+// EU AI Act Annex XI 1(d) requires providers to document "the architecture and
+// number of parameters". This is the only way to check that requirement was met
+// honestly rather than merely answered.
+func driftParameterCount(a *model.Artifact) []model.Finding {
+	measured := a.Params.MeasuredParameters
+	if measured <= 0 {
+		return nil
+	}
+	declared, label := declaredParameterCount(a)
+	if declared <= 0 {
+		return nil
+	}
+
+	// A generous band. Published counts legitimately differ from a tensor sum:
+	// embeddings may be tied or counted twice, a size label is rounded to one
+	// significant figure, and "8B" is a family name as much as a measurement.
+	// Only a difference too large to explain that way is worth reporting.
+	ratio := float64(measured) / float64(declared)
+	if ratio > 0.80 && ratio < 1.25 {
+		return nil
+	}
+	return []model.Finding{{
+		ID: DriftParameterCount, Title: "Declared parameter count does not match the tensors",
+		Severity: "High", Category: "drift", Location: cmp.Or(a.Declared.Source, a.PrimaryFile().Path),
+		Description: fmt.Sprintf("the model is described as %q (about %s parameters) but its tensor shapes "+
+			"sum to %s — a factor of %.1f. Parameter count drives memory, cost and capability, so a figure "+
+			"this far from the artifact misdescribes all three. Counts differing by a little are normal "+
+			"(tied embeddings, rounding); this is not.",
+			label, humanCount(declared), humanCount(measured), maxRatio(ratio)),
+	}}
+}
+
+// declaredParameterCount reads a declared count, accepting both an exact number
+// and the "8B" / "1.5b" shorthand a size label uses.
+func declaredParameterCount(a *model.Artifact) (int64, string) {
+	for _, raw := range []string{a.Declared.ParameterCount, a.Params.ParameterCount} {
+		if raw == "" {
+			continue
+		}
+		if n := parseCount(raw); n > 0 {
+			return n, raw
+		}
+	}
+	return 0, ""
+}
+
+// parseCount turns "8B", "1.5b", "70M" or a plain integer into a number.
+// Anything it does not understand yields 0, which suppresses the check — an
+// unparsed label is not evidence of a mismatch.
+func parseCount(s string) int64 {
+	t := strings.TrimSpace(strings.ToLower(s))
+	t = strings.ReplaceAll(t, ",", "")
+	t = strings.ReplaceAll(t, "_", "")
+	mult := float64(1)
+	switch {
+	case strings.HasSuffix(t, "b"):
+		mult, t = 1e9, strings.TrimSuffix(t, "b")
+	case strings.HasSuffix(t, "m"):
+		mult, t = 1e6, strings.TrimSuffix(t, "m")
+	case strings.HasSuffix(t, "k"):
+		mult, t = 1e3, strings.TrimSuffix(t, "k")
+	}
+	f, err := strconv.ParseFloat(strings.TrimSpace(t), 64)
+	if err != nil || f <= 0 {
+		return 0
+	}
+	n := f * mult
+	if n > math.MaxInt64 {
+		return 0
+	}
+	return int64(n)
+}
+
+// humanCount renders a count the way a model card would.
+func humanCount(n int64) string {
+	switch {
+	case n >= 1e9:
+		return strconv.FormatFloat(float64(n)/1e9, 'f', 1, 64) + "B"
+	case n >= 1e6:
+		return strconv.FormatFloat(float64(n)/1e6, 'f', 1, 64) + "M"
+	case n >= 1e3:
+		return strconv.FormatFloat(float64(n)/1e3, 'f', 1, 64) + "K"
+	}
+	return strconv.FormatInt(n, 10)
+}
+
+// maxRatio reports the discrepancy as a factor greater than one, whichever
+// direction it went, so the message reads the same for over- and under-claims.
+func maxRatio(r float64) float64 {
+	if r < 1 {
+		return 1 / r
+	}
+	return r
 }

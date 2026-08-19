@@ -142,3 +142,54 @@ func TestDriftMixedFormats(t *testing.T) {
 		t.Error("safetensors alone should not be reported")
 	}
 }
+
+func TestParseCount(t *testing.T) {
+	cases := map[string]int64{
+		"8B": 8e9, "1.5b": 1_500_000_000, "70M": 70e6, "125m": 125e6,
+		"7504924672": 7504924672, "1,000,000": 1e6, "1_500_000": 1_500_000,
+		// Anything unparsed yields 0, which suppresses the check. A label we
+		// cannot read is not evidence of a mismatch.
+		"": 0, "large": 0, "-3B": 0, "0": 0,
+	}
+	for in, want := range cases {
+		if got := parseCount(in); got != want {
+			t.Errorf("parseCount(%q) = %d, want %d", in, got, want)
+		}
+	}
+}
+
+func TestDriftParameterCount(t *testing.T) {
+	cases := []struct {
+		name        string
+		declared    string
+		measured    int64
+		wantFinding bool
+	}{
+		// Tied embeddings and rounding move the real figure around; the band is
+		// deliberately wide so ordinary models stay quiet.
+		{"exact", "8B", 8_000_000_000, false},
+		{"rounded label", "8B", 8_030_261_248, false},
+		{"tied embeddings counted once", "8B", 7_504_924_672, false},
+		{"slightly over", "7B", 7_800_000_000, false},
+		// A model an order of magnitude off is not a rounding artefact.
+		{"an order of magnitude short", "8B", 525_336_576, true},
+		{"wildly over", "1B", 70_000_000_000, true},
+		// Nothing to compare against on either side.
+		{"no declaration", "", 8_000_000_000, false},
+		{"nothing measured", "8B", 0, false},
+		{"unparseable label", "large", 8_000_000_000, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := &model.Artifact{
+				Declared: model.Declared{Source: "config.json", ParameterCount: c.declared},
+				Params:   model.Parameters{MeasuredParameters: c.measured},
+			}
+			got := hasIn(driftIDs(a), DriftParameterCount)
+			if got != c.wantFinding {
+				t.Errorf("declared=%q measured=%d: finding=%v, want %v",
+					c.declared, c.measured, got, c.wantFinding)
+			}
+		})
+	}
+}

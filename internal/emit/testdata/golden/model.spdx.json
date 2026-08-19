@@ -2,6 +2,22 @@
   "@context": "https://spdx.org/rdf/3.0.1/spdx-context.jsonld",
   "@graph": [
     {
+      "creationInfo": "_:creationinfo",
+      "name": "Golden-Test-Model bill of materials",
+      "profileConformance": [
+        "core",
+        "software",
+        "ai",
+        "dataset",
+        "simpleLicensing"
+      ],
+      "rootElement": [
+        "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#model"
+      ],
+      "spdxId": "https://spdx.org/spdxdocs/tessera/9dc0c034-c5fc-44cf-91a1-ac37141c4032#document",
+      "type": "SpdxDocument"
+    },
+    {
       "@id": "_:creationinfo",
       "created": "2026-08-18T12:00:00Z",
       "createdBy": [
@@ -36,6 +52,16 @@
           "key": "parameterCount",
           "type": "DictionaryEntry",
           "value": "8B"
+        },
+        {
+          "key": "measuredParameters",
+          "type": "DictionaryEntry",
+          "value": "7504924672"
+        },
+        {
+          "key": "inputOutputSignature",
+          "type": "DictionaryEntry",
+          "value": "in(input_ids:int64[?x?]) -\u003e out(logits:float[?x?x128256])"
         },
         {
           "key": "attention.head_count",
@@ -76,6 +102,11 @@
           "algorithm": "sha256",
           "hashValue": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "type": "Hash"
+        },
+        {
+          "algorithm": "sha384",
+          "hashValue": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+          "type": "Hash"
         }
       ]
     },
@@ -89,6 +120,11 @@
           "algorithm": "sha256",
           "hashValue": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           "type": "Hash"
+        },
+        {
+          "algorithm": "sha384",
+          "hashValue": "222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222",
+          "type": "Hash"
         }
       ]
     },
@@ -101,6 +137,11 @@
         {
           "algorithm": "sha256",
           "hashValue": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "type": "Hash"
+        },
+        {
+          "algorithm": "sha384",
+          "hashValue": "333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333",
           "type": "Hash"
         }
       ]

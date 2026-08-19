@@ -126,6 +126,8 @@ func parseSafetensorsBounded(path string, maxHeader int64) (*model.Artifact, err
 		if err := json.Unmarshal(raw[name], &t); err != nil {
 			continue
 		}
+		// Counted for every tensor, materialised only for the first few.
+		a.Params.MeasuredParameters += elementCount(t.Shape)
 		if len(a.Tensors) < ggMaterializeTensors {
 			a.Tensors = append(a.Tensors, model.Tensor{Name: name, DType: t.DType, Shape: t.Shape})
 		}

@@ -37,6 +37,10 @@
         {
           "alg": "SHA-256",
           "content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "alg": "SHA-384",
+          "content": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111"
         }
       ],
       "externalReferences": [
@@ -57,6 +61,16 @@
             {
               "type": "dataset",
               "name": "wikipedia"
+            }
+          ],
+          "inputs": [
+            {
+              "format": "int64[?,?]"
+            }
+          ],
+          "outputs": [
+            {
+              "format": "float[?,?,128256]"
             }
           ]
         },
@@ -127,11 +141,20 @@
           "value": "291"
         },
         {
+          "name": "tessera:measuredParameters",
+          "value": "7504924672"
+        },
+        {
           "name": "onnx:opset:ai.onnx",
           "value": "18"
         }
       ]
-    }
+    },
+    "lifecycles": [
+      {
+        "phase": "post-build"
+      }
+    ]
   },
   "components": [
     {
@@ -142,6 +165,10 @@
         {
           "alg": "SHA-256",
           "content": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "alg": "SHA-384",
+          "content": "222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222"
         }
       ],
       "properties": [
@@ -163,6 +190,10 @@
         {
           "alg": "SHA-256",
           "content": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        {
+          "alg": "SHA-384",
+          "content": "333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333"
         }
       ],
       "properties": [

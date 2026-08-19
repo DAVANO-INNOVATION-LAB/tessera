@@ -144,11 +144,17 @@ type Parameters struct {
 	// tensor headers rather than declared anywhere.
 	DType string `json:"dtype,omitempty"`
 	// Quantization is a GGUF-only first-class datum (general.file_type).
-	Quantization    string            `json:"quantization,omitempty"`
-	ParameterCount  string            `json:"parameterCount,omitempty"`
-	Hyperparameters map[string]string `json:"hyperparameters,omitempty"`
-	Inputs          []IOSpec          `json:"inputs,omitempty"`
-	Outputs         []IOSpec          `json:"outputs,omitempty"`
+	Quantization string `json:"quantization,omitempty"`
+	// ParameterCount is a declared/label form, e.g. GGUF general.size_label "8B".
+	ParameterCount string `json:"parameterCount,omitempty"`
+	// MeasuredParameters is the true count summed from every tensor's shape,
+	// across the whole file rather than the bounded inventory. It is the figure
+	// the declared count is checked against, and the one the EU AI Act Annex XI
+	// calls "the number of parameters".
+	MeasuredParameters int64             `json:"measuredParameters,omitempty"`
+	Hyperparameters    map[string]string `json:"hyperparameters,omitempty"`
+	Inputs             []IOSpec          `json:"inputs,omitempty"`
+	Outputs            []IOSpec          `json:"outputs,omitempty"`
 }
 
 // IOSpec is one model input or output tensor's declared type.
@@ -161,9 +167,17 @@ type IOSpec struct {
 
 // FileComponent is one physical file the model is made of.
 type FileComponent struct {
-	Path   string `json:"path"`
-	Size   int64  `json:"size"`
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+	// SHA256 is kept because it is what the surrounding ecosystem reads: BOM
+	// references, registry digests and most existing tooling assume it.
 	SHA256 string `json:"sha256,omitempty"`
+	// SHA384 is the digest national-security guidance asks for. CNSA 2.0
+	// requires SHA-384 or stronger, and BSI TR-02102-1 and ANSSI concur, so a
+	// document carrying only SHA-256 cannot be used where those apply. Both are
+	// emitted: one for interoperability, one for assurance, computed in a single
+	// pass over the file.
+	SHA384 string `json:"sha384,omitempty"`
 	// Role is primary, shard, or external-data.
 	Role string `json:"role,omitempty"`
 }

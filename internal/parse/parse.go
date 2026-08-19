@@ -3,6 +3,7 @@ package parse
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -413,11 +414,16 @@ func hashFile(ctx context.Context, path, role string, skipHash bool) (model.File
 	}
 	defer f.Close()
 
-	h := sha256.New()
-	if _, err := io.Copy(h, ctxReader{ctx: ctx, r: f}); err != nil {
+	// One pass, two digests. A second read of a multi-gigabyte model to compute
+	// a second hash would double the most expensive part of the analysis for no
+	// reason; io.MultiWriter feeds both at once.
+	h256 := sha256.New()
+	h384 := sha512.New384()
+	if _, err := io.Copy(io.MultiWriter(h256, h384), ctxReader{ctx: ctx, r: f}); err != nil {
 		return model.FileComponent{}, err
 	}
-	fc.SHA256 = hex.EncodeToString(h.Sum(nil))
+	fc.SHA256 = hex.EncodeToString(h256.Sum(nil))
+	fc.SHA384 = hex.EncodeToString(h384.Sum(nil))
 	return fc, nil
 }
 
