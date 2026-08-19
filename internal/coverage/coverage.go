@@ -344,14 +344,14 @@ func componentSetStatement(a *model.Artifact) string {
 		return "No component files were enumerated."
 	}
 	if a.HasFinding("TESS-FILE-002") {
-		return fmt.Sprintf("%d of the artifact's own files are enumerated and the set is "+
-			"incomplete, see TESS-FILE-002.", n)
+		return fmt.Sprintf("%s of the artifact's own are enumerated and the set is "+
+			"incomplete, see TESS-FILE-002.", plural(n, "file"))
 	}
 	if extra := len(a.Runtime.CustomDomains); extra > 0 {
-		return fmt.Sprintf("The artifact's own set of %d files and %d custom operator "+
-			"domains is complete.", n, extra)
+		return fmt.Sprintf("The artifact's own set of %s and %s is complete.",
+			plural(n, "file"), plural(extra, "custom operator domain"))
 	}
-	return fmt.Sprintf("The artifact's own set of %d files is complete.", n)
+	return fmt.Sprintf("The artifact's own set of %s is complete.", plural(n, "file"))
 }
 
 // creatorContact returns a contact of the shape §5.2.2 requires — an email
@@ -376,4 +376,11 @@ func originalLicense(a *model.Artifact) string {
 		}
 	}
 	return ""
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
