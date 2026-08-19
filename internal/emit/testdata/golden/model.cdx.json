@@ -141,6 +141,10 @@
           "value": "291"
         },
         {
+          "name": "tessera:primaryFile",
+          "value": "model.gguf"
+        },
+        {
           "name": "tessera:measuredParameters",
           "value": "7504924672"
         },

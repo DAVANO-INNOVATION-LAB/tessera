@@ -1,6 +1,9 @@
 package tessera
 
-import "github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
+import (
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/verify"
+)
 
 // The public vocabulary. These are aliases rather than copies, so a value read
 // from the parser is the same value the caller holds — no conversion layer, no
@@ -48,6 +51,29 @@ type (
 
 	// Format names the container a parser recognized.
 	Format = model.Format
+
+	// VerifyResult is the outcome of checking a document against an artifact.
+	VerifyResult = verify.Result
+	// VerifyCheck is one comparison between a documented claim and a measured
+	// fact.
+	VerifyCheck = verify.Check
+	// VerifyOutcome is the result of a single check.
+	VerifyOutcome = verify.Outcome
+)
+
+// Verification outcomes.
+const (
+	// VerifyPass means the document's claim matched the artifact.
+	VerifyPass = verify.OutcomePass
+	// VerifyFail means it did not.
+	VerifyFail = verify.OutcomeFail
+	// VerifyUncheckable means the document claimed something that cannot be
+	// confirmed from the bytes. Reported rather than passed, because silence
+	// would read as confirmation.
+	VerifyUncheckable = verify.OutcomeUncheckable
+	// VerifyExtra means the artifact has a component the document never
+	// mentioned.
+	VerifyExtra = verify.OutcomeExtra
 )
 
 // Recognized formats.

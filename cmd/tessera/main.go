@@ -56,6 +56,8 @@ func main() {
 		os.Exit(runBOM(os.Args[2:]))
 	case "inspect":
 		os.Exit(runInspect(os.Args[2:]))
+	case "verify":
+		os.Exit(runVerify(os.Args[2:]))
 	case "version":
 		fmt.Println(version)
 	case "-h", "--help", "help":
@@ -360,4 +362,77 @@ func shortHash(sha string) string {
 		return sha[:12]
 	}
 	return "-"
+}
+
+// runVerify checks a bill of materials against an artifact.
+func runVerify(args []string) int {
+	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
+	jsonOut := fs.Bool("json", false, "emit the full result as JSON")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: tessera verify <bom.json> <path> [--json]")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	rest := fs.Args()
+	if len(rest) != 2 {
+		fs.Usage()
+		return exitUsage
+	}
+
+	res, err := tessera.Verify(context.Background(), rest[0], rest[1])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tessera verify: %v\n", err)
+		return exitError
+	}
+
+	if *jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(res); err != nil {
+			fmt.Fprintf(os.Stderr, "tessera verify: %v\n", err)
+			return exitError
+		}
+	} else {
+		printVerify(res, rest[0], rest[1])
+	}
+
+	if res.Verified {
+		return exitClean
+	}
+	// A document that does not describe the artifact is a failed gate, not a
+	// scan finding: nothing here is a judgement about the model's contents.
+	return exitCritical
+}
+
+func printVerify(r *tessera.VerifyResult, docPath, artifactPath string) {
+	fmt.Printf("tessera %s — verifying\n", version)
+	fmt.Printf("  document  %s (%s)\n", docPath, r.DocumentFormat)
+	fmt.Printf("  artifact  %s\n\n", artifactPath)
+
+	symbol := map[tessera.VerifyOutcome]string{
+		tessera.VerifyPass:        "ok  ",
+		tessera.VerifyFail:        "FAIL",
+		tessera.VerifyUncheckable: "?   ",
+		tessera.VerifyExtra:       "EXTRA",
+	}
+	for _, c := range r.Checks {
+		fmt.Printf("  [%-5s] %s\n", symbol[c.Outcome], c.Subject)
+		if c.Claim != "" || c.Measured != "" {
+			fmt.Printf("            document: %s\n            artifact: %s\n",
+				orNone(c.Claim), orNone(c.Measured))
+		}
+		if c.Detail != "" {
+			fmt.Printf("            %s\n", c.Detail)
+		}
+	}
+
+	fmt.Printf("\n  %d passed, %d failed, %d uncheckable, %d undocumented\n",
+		r.Summary.Passed, r.Summary.Failed, r.Summary.Uncheckable, r.Summary.NotInDocument)
+	if r.Verified {
+		fmt.Println("\nverified: the artifact matches the document")
+	} else {
+		fmt.Println("\nNOT VERIFIED: the artifact does not match the document")
+	}
 }

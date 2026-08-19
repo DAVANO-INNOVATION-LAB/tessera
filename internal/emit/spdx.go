@@ -118,11 +118,16 @@ func SPDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
 	for _, k := range slices.Sorted(maps.Keys(a.Params.Hyperparameters)) {
 		hp = append(hp, entry(k, a.Params.Hyperparameters[k]))
 	}
+	// The primary file's hash verifies the package, and its path is recorded so
+	// a verifier can tell which file on disk the package refers to.
+	primary := a.PrimaryFile()
+	if primary.Path != "" {
+		hp = append(hp, entry("primaryFile", primary.Path))
+	}
 	if len(hp) > 0 {
 		aiPkg["ai_hyperparameter"] = hp
 	}
-	// The primary file's hash verifies the package.
-	if primary := a.PrimaryFile(); primary.SHA256 != "" {
+	if primary.SHA256 != "" {
 		aiPkg["verifiedUsing"] = hashElements(primary)
 	}
 	graph = append(graph, aiPkg)

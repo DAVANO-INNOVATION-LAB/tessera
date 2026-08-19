@@ -53,6 +53,15 @@ parser rather than in a hub client.
 `modelCard` and the SPDX 3.0.1 `ai_AIPackage` describe the same read and cannot
 disagree with each other about the same artifact.
 
+**It verifies, not just generates.** `tessera verify` takes a bill of materials
+and the artifact it claims to describe, and asks whether the document still
+holds: every documented component present with the digest recorded, every file
+present documented. Producing a document at build time says nothing about the
+bytes in front of you later unless somebody checks, and the checking is the part
+that is usually missing. A document whose claims all pass but which omits a file
+that is present is reported as **not verified** — an undocumented component is
+the shape a smuggled payload takes.
+
 **It is a library first.** Zero third-party dependencies, no network, no output
 of its own — so it embeds inside another program rather than being shelled out
 to. That is the difference that matters most if you are putting it inside
@@ -151,6 +160,9 @@ tessera bom ./model-dir --out ./boms
 
 # Byte-identical output for the same input (timestamp from the file mtime)
 tessera bom model.onnx --format spdx --reproducible
+
+# Check a document against the artifact it claims to describe
+tessera verify model.cdx.json ./model-dir
 ```
 
 `bom` accepts a single file or a directory containing one model (it resolves
@@ -166,6 +178,10 @@ independently).
 | `3` | scanned, at least one Critical |
 | `1` | the scan itself failed |
 | `64` | the command line was wrong — **nothing was scanned** |
+
+For `verify`, `0` means the artifact matches the document and `3` means it does
+not. That is a failed gate rather than a scan finding: nothing in it is a
+judgement about the model's contents.
 
 `64` is separate from `1` on purpose. A gate that treats a nonzero-but-known code
 as "findings, warn and continue" would otherwise pass silently on a typo'd flag,

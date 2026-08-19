@@ -192,6 +192,12 @@ func modelProperties(a *model.Artifact) []cdxProp {
 	if a.TensorCount > 0 {
 		add("tessera:tensorCount", fmt.Sprintf("%d", a.TensorCount))
 	}
+	if p := a.PrimaryFile().Path; p != "" {
+		// The model component is named for the model, so the primary file's own
+		// path would otherwise be unrecoverable — and a document that cannot
+		// identify its primary component cannot be verified against one.
+		add("tessera:primaryFile", p)
+	}
 	if a.Params.MeasuredParameters > 0 {
 		// Distinct from any declared size label. This is the figure summed from
 		// every tensor shape in the file, and the one EU AI Act Annex XI 1(d)
