@@ -23,6 +23,18 @@
         {
           "name": "tessera:format",
           "value": "safetensors"
+        },
+        {
+          "name": "bsi:component:executable",
+          "value": "non-executable"
+        },
+        {
+          "name": "bsi:component:archive",
+          "value": "no archive"
+        },
+        {
+          "name": "bsi:component:structured",
+          "value": "unstructured"
         }
       ]
     },

@@ -73,10 +73,10 @@ func CycloneDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, err
 			BOMRef: "urn:tessera:file:" + shortID(f.SHA256, f.Path),
 			Name:   f.Path,
 			Hashes: hashesOf(f),
-			Properties: []cdxProp{
+			Properties: append([]cdxProp{
 				{Name: "tessera:role", Value: f.Role},
 				{Name: "tessera:size", Value: fmt.Sprintf("%d", f.Size)},
-			},
+			}, bsiProperties(a, f)...),
 		})
 	}
 
@@ -177,6 +177,26 @@ func modelCard(a *model.Artifact) *cdxModelCard {
 	return &cdxModelCard{ModelParameters: mpp, Properties: props}
 }
 
+// bsiProperties emits the three component properties BSI TR-03183-2 §5.2.2
+// requires, plus the filename, under the names BSI's own CycloneDX property
+// taxonomy defines.
+//
+// They are emitted rather than only measured. A coverage report claiming an
+// element is populated when the document does not carry it is a claim of
+// conformance with nothing behind it, which is the same defect as a compliance
+// mapping citing a finding ID nothing emits.
+func bsiProperties(a *model.Artifact, f model.FileComponent) []cdxProp {
+	props := []cdxProp{
+		{Name: "bsi:component:executable", Value: a.FileExecutableProperty(f)},
+		{Name: "bsi:component:archive", Value: a.ArchiveProperty()},
+		{Name: "bsi:component:structured", Value: a.FileStructuredProperty(f)},
+	}
+	if f.Path != "" {
+		props = append(props, cdxProp{Name: "bsi:component:filename", Value: f.Path})
+	}
+	return props
+}
+
 func modelProperties(a *model.Artifact) []cdxProp {
 	var props []cdxProp
 	add := func(name, val string) {
@@ -192,6 +212,7 @@ func modelProperties(a *model.Artifact) []cdxProp {
 	if a.TensorCount > 0 {
 		add("tessera:tensorCount", fmt.Sprintf("%d", a.TensorCount))
 	}
+	props = append(props, bsiProperties(a, a.PrimaryFile())...)
 	if p := a.PrimaryFile().Path; p != "" {
 		// The model component is named for the model, so the primary file's own
 		// path would otherwise be unrecoverable — and a document that cannot
@@ -298,12 +319,21 @@ func ioFormat(io model.IOSpec) string {
 
 // hashesOf emits every digest computed for a component.
 //
-// Both are carried deliberately. SHA-256 is what the surrounding ecosystem
-// reads, and SHA-384 is the weakest digest CNSA 2.0 permits — so a document
-// with only the first cannot be used under national-security guidance, and one
-// with only the second is illegible to most existing tooling. The G7 minimum
-// elements ask for the algorithm to be named from the IANA registry precisely
-// so a verifier can pick one and recompute it.
+// All three are carried deliberately, because three published requirements
+// name three different digests and none of them accepts a substitute:
+//
+//   - SHA-256 is what the surrounding ecosystem reads. A document without it
+//     is illegible to most existing tooling.
+//   - SHA-384 is the weakest digest CNSA 2.0 permits, and BSI TR-02102-1 and
+//     ANSSI concur. A document without it cannot be used under
+//     national-security guidance.
+//   - SHA-512 is what BSI TR-03183-2 §5.2.2 names for a deployable component
+//     — by algorithm, not by strength — so SHA-384 does not satisfy it even
+//     though CNSA considers it sufficient.
+//
+// The G7 minimum elements ask for the algorithm to be named from the IANA
+// registry precisely so a verifier can pick one and recompute it. Emitting
+// all three lets the verifier pick the one their own rules name.
 func hashesOf(f model.FileComponent) []cdxHash {
 	var out []cdxHash
 	if f.SHA256 != "" {
@@ -311,6 +341,9 @@ func hashesOf(f model.FileComponent) []cdxHash {
 	}
 	if f.SHA384 != "" {
 		out = append(out, cdxHash{Alg: "SHA-384", Content: f.SHA384})
+	}
+	if f.SHA512 != "" {
+		out = append(out, cdxHash{Alg: "SHA-512", Content: f.SHA512})
 	}
 	return out
 }

@@ -60,9 +60,19 @@ func driftArchitecture(a *model.Artifact) []model.Finding {
 		return nil
 	}
 	if measured == "" {
-		// A claim with nothing to check it against is not a mismatch. Saying so
-		// is still better than silence, because a reader would otherwise assume
-		// the architecture in the bill of materials was verified.
+		// Only worth saying when the format could have recorded an architecture
+		// and did not. safetensors and ONNX never record one, so on those the
+		// claim is unverifiable by construction — reporting it says something
+		// about the file format rather than about this artifact.
+		//
+		// Measured against a corpus of twenty-five real Hugging Face models this
+		// fired on 84% of them, every safetensors and every ONNX. A finding that
+		// fires on five models in six carries no information and teaches people
+		// to skip the list, which costs more than the finding is worth. The same
+		// reasoning keeps TESS-PICKLE-003 at Low elsewhere.
+		if a.Format != model.FormatGGUF {
+			return nil
+		}
 		return []model.Finding{{
 			ID: DriftUncheckable, Title: "Declared architecture could not be checked",
 			Severity: "Low", Category: "drift", Location: a.Declared.Source,

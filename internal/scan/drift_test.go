@@ -69,13 +69,28 @@ func TestDriftArchitecture(t *testing.T) {
 		t.Error("MistralForCausalLM vs llama should be reported")
 	}
 
-	// A claim with nothing to check it against is reported as uncheckable, not
-	// as agreement — silence would imply it had been verified.
+	// A GGUF that omits its architecture is worth reporting: the format records
+	// one, so its absence is a property of this artifact.
 	unchecked := &model.Artifact{
+		Format:   model.FormatGGUF,
 		Declared: model.Declared{Source: "config.json", Architecture: "LlamaForCausalLM"},
 	}
 	if !hasIn(driftIDs(unchecked), DriftUncheckable) {
-		t.Error("an unverifiable architecture claim should be reported as such")
+		t.Error("a GGUF declaring an architecture it does not record should be reported")
+	}
+
+	// The same claim over safetensors is not news. Neither safetensors nor ONNX
+	// records an architecture, so reporting it describes the format rather than
+	// the artifact — and measured against twenty-five real Hugging Face models
+	// it fired on 84% of them, which is a finding nobody will read twice.
+	for _, f := range []model.Format{model.FormatSafetensors, model.FormatONNX} {
+		quiet := &model.Artifact{
+			Format:   f,
+			Declared: model.Declared{Source: "config.json", Architecture: "LlamaForCausalLM"},
+		}
+		if hasIn(driftIDs(quiet), DriftUncheckable) {
+			t.Errorf("%s cannot record an architecture; an unverifiable claim there is not a finding", f)
+		}
 	}
 }
 

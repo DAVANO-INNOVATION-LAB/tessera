@@ -448,7 +448,7 @@ func runCoverage(args []string) int {
 	jsonOut := fs.Bool("json", false, "emit the report as JSON")
 	path, err := parseWithPositional(fs, args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Usage: tessera coverage <path> [--standard g7|cert-in] [--json]")
+		fmt.Fprintln(os.Stderr, "Usage: tessera coverage <path> [--standard g7|cert-in|bsi] [--json]")
 		return exitUsage
 	}
 

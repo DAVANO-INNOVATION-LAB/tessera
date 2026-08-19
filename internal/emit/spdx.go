@@ -282,6 +282,9 @@ func hashElements(f model.FileComponent) []any {
 	if f.SHA384 != "" {
 		out = append(out, hashElement("sha384", f.SHA384))
 	}
+	if f.SHA512 != "" {
+		out = append(out, hashElement("sha512", f.SHA512))
+	}
 	return out
 }
 
