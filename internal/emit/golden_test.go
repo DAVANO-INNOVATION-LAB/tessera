@@ -59,6 +59,15 @@ func goldenArtifact() *model.Artifact {
 		Params: model.Parameters{
 			Architecture: "llama", ArchitectureFamily: "llama",
 			DType: "BF16", Quantization: "Q4_K_M", ParameterCount: "8B",
+			// A measured count that deliberately disagrees with the "8B" label,
+			// and a graph signature — the two EU AI Act Annex XI 1(d)/(e) facts.
+			MeasuredParameters: 7_504_924_672,
+			Inputs: []model.IOSpec{
+				{Name: "input_ids", DType: "int64", Shape: []int64{-1, -1}, Format: "tensor"},
+			},
+			Outputs: []model.IOSpec{
+				{Name: "logits", DType: "float", Shape: []int64{-1, -1, 128256}, Format: "tensor"},
+			},
 			// A map, so its iteration order is random per run: this is what
 			// proves the emitters sort rather than happening to agree.
 			Hyperparameters: map[string]string{
@@ -74,9 +83,9 @@ func goldenArtifact() *model.Artifact {
 			OpsetImports:  []model.Opset{{Domain: "", Version: 18}},
 		},
 		Files: []model.FileComponent{
-			{Path: "model.gguf", Size: 4096, SHA256: strings.Repeat("a", 64), Role: "primary"},
-			{Path: "model-00002-of-00002.gguf", Size: 2048, SHA256: strings.Repeat("b", 64), Role: "shard"},
-			{Path: "weights.bin", Size: 128, SHA256: strings.Repeat("c", 64), Role: "external-data"},
+			{Path: "model.gguf", Size: 4096, SHA256: strings.Repeat("a", 64), SHA384: strings.Repeat("1", 96), Role: "primary"},
+			{Path: "model-00002-of-00002.gguf", Size: 2048, SHA256: strings.Repeat("b", 64), SHA384: strings.Repeat("2", 96), Role: "shard"},
+			{Path: "weights.bin", Size: 128, SHA256: strings.Repeat("c", 64), SHA384: strings.Repeat("3", 96), Role: "external-data"},
 		},
 		TensorCount: 291,
 		Raw:         map[string]string{"general.source.commit": "ABC123"},

@@ -261,6 +261,11 @@ func ParseGGUF(path string) (*model.Artifact, error) {
 		if g.err != nil {
 			break
 		}
+		// Every tensor contributes to the parameter count, including the ones
+		// past the inventory cap. The shapes are already being read and thrown
+		// away here, so counting them costs nothing and yields the one figure
+		// a declared "8B" can actually be checked against.
+		a.Params.MeasuredParameters += elementCount(dims)
 		if len(a.Tensors) < ggMaterializeTensors {
 			a.Tensors = append(a.Tensors, model.Tensor{
 				Name:  name,
@@ -532,4 +537,28 @@ func lessIndex(a, b string) bool {
 		return ai < bi
 	}
 	return a < b
+}
+
+// elementCount multiplies a shape into a parameter count, saturating rather
+// than overflowing.
+//
+// The dimensions come from an attacker-controlled header, so the arithmetic is
+// guarded: a crafted file declaring several dimensions near the top of the
+// int64 range would otherwise wrap and report a small, plausible-looking count.
+// Saturating keeps the number honest — implausibly large, which is what it is.
+func elementCount(dims []int64) int64 {
+	if len(dims) == 0 {
+		return 0
+	}
+	n := int64(1)
+	for _, d := range dims {
+		if d <= 0 {
+			return 0
+		}
+		if n > math.MaxInt64/d {
+			return math.MaxInt64
+		}
+		n *= d
+	}
+	return n
 }

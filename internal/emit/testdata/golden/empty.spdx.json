@@ -2,6 +2,22 @@
   "@context": "https://spdx.org/rdf/3.0.1/spdx-context.jsonld",
   "@graph": [
     {
+      "creationInfo": "_:creationinfo",
+      "name": "unnamed bill of materials",
+      "profileConformance": [
+        "core",
+        "software",
+        "ai",
+        "dataset",
+        "simpleLicensing"
+      ],
+      "rootElement": [
+        "https://spdx.org/spdxdocs/tessera/63c50425-71ff-499f-88eb-1ebc8f5468e6#model"
+      ],
+      "spdxId": "https://spdx.org/spdxdocs/tessera/63c50425-71ff-499f-88eb-1ebc8f5468e6#document",
+      "type": "SpdxDocument"
+    },
+    {
       "@id": "_:creationinfo",
       "created": "2026-08-18T12:00:00Z",
       "createdBy": [

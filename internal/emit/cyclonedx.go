@@ -49,6 +49,12 @@ func CycloneDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, err
 		Version:      1,
 		Metadata: cdxMetadata{
 			Timestamp: generatedAt.UTC().Format(time.RFC3339),
+			// The lifecycle stage this document describes. "post-build" is the
+			// honest answer and a distinctive one: Tessera reads a shipped
+			// artifact, not a build. The ENISA/CISA baseline elements, ISO/IEC
+			// 27036-3 Annex B and CISA's 2026 minimum elements all ask for it
+			// under the name "generation context" or "life cycle".
+			Lifecycles: []cdxLifecycle{{Phase: "post-build"}},
 			Tools: cdxTools{Components: []cdxComponent{{
 				Type: "application", Name: tool.Name, Version: tool.Version, Publisher: tool.Vendor,
 			}}},
@@ -66,7 +72,7 @@ func CycloneDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, err
 			Type:   "file",
 			BOMRef: "urn:tessera:file:" + shortID(f.SHA256, f.Path),
 			Name:   f.Path,
-			Hashes: hashesOf(f.SHA256),
+			Hashes: hashesOf(f),
 			Properties: []cdxProp{
 				{Name: "tessera:role", Value: f.Role},
 				{Name: "tessera:size", Value: fmt.Sprintf("%d", f.Size)},
@@ -111,7 +117,7 @@ func modelComponent(a *model.Artifact, ref string) cdxComponent {
 		Version:     a.Identity.Version,
 		Description: a.Identity.Description,
 		PURL:        purlFor(a),
-		Hashes:      hashesOf(a.PrimaryFile().SHA256),
+		Hashes:      hashesOf(a.PrimaryFile()),
 		Licenses:    licenseChoices(a.Licenses),
 	}
 	if a.Identity.Author != "" || a.Identity.Organization != "" {
@@ -185,6 +191,12 @@ func modelProperties(a *model.Artifact) []cdxProp {
 	add("tessera:producer", a.Runtime.Producer)
 	if a.TensorCount > 0 {
 		add("tessera:tensorCount", fmt.Sprintf("%d", a.TensorCount))
+	}
+	if a.Params.MeasuredParameters > 0 {
+		// Distinct from any declared size label. This is the figure summed from
+		// every tensor shape in the file, and the one EU AI Act Annex XI 1(d)
+		// means by "the number of parameters".
+		add("tessera:measuredParameters", fmt.Sprintf("%d", a.Params.MeasuredParameters))
 	}
 	for _, op := range a.Runtime.OpsetImports {
 		dom := op.Domain
@@ -267,16 +279,34 @@ func ioFormat(io model.IOSpec) string {
 	}
 	dims := make([]string, len(io.Shape))
 	for i, d := range io.Shape {
-		dims[i] = fmt.Sprintf("%d", d)
+		if d < 0 {
+			// A symbolic axis — a named batch dimension, say. Rendering it as
+			// -1 would read as a real extent; "?" says it is dynamic.
+			dims[i] = "?"
+		} else {
+			dims[i] = fmt.Sprintf("%d", d)
+		}
 	}
 	return fmt.Sprintf("%s[%s]", io.DType, strings.Join(dims, ","))
 }
 
-func hashesOf(sha string) []cdxHash {
-	if sha == "" {
-		return nil
+// hashesOf emits every digest computed for a component.
+//
+// Both are carried deliberately. SHA-256 is what the surrounding ecosystem
+// reads, and SHA-384 is the weakest digest CNSA 2.0 permits — so a document
+// with only the first cannot be used under national-security guidance, and one
+// with only the second is illegible to most existing tooling. The G7 minimum
+// elements ask for the algorithm to be named from the IANA registry precisely
+// so a verifier can pick one and recompute it.
+func hashesOf(f model.FileComponent) []cdxHash {
+	var out []cdxHash
+	if f.SHA256 != "" {
+		out = append(out, cdxHash{Alg: "SHA-256", Content: f.SHA256})
 	}
-	return []cdxHash{{Alg: "SHA-256", Content: sha}}
+	if f.SHA384 != "" {
+		out = append(out, cdxHash{Alg: "SHA-384", Content: f.SHA384})
+	}
+	return out
 }
 
 // --- CycloneDX JSON model ---
@@ -291,10 +321,15 @@ type cdxDoc struct {
 	Vulnerabilities []cdxVuln      `json:"vulnerabilities,omitempty"`
 }
 
+type cdxLifecycle struct {
+	Phase string `json:"phase"`
+}
+
 type cdxMetadata struct {
-	Timestamp string       `json:"timestamp"`
-	Tools     cdxTools     `json:"tools"`
-	Component cdxComponent `json:"component"`
+	Timestamp  string         `json:"timestamp"`
+	Tools      cdxTools       `json:"tools"`
+	Component  cdxComponent   `json:"component"`
+	Lifecycles []cdxLifecycle `json:"lifecycles,omitempty"`
 }
 
 type cdxTools struct {

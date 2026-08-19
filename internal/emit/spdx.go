@@ -34,7 +34,26 @@ func SPDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
 		"createdUsing": []string{id("tool-tessera")},
 	}
 
+	// The document element. Without it a reader has no root to start from, and
+	// no way to see which profiles the document claims to implement — which is
+	// the first question a conformance reviewer asks. profileConformance is how
+	// SPDX 3 answers it; omitting it leaves the AI profile an inference.
+	docElement := map[string]any{
+		"type":         "SpdxDocument",
+		"spdxId":       id("document"),
+		"creationInfo": "_:creationinfo",
+		"name":         a.Identity.Name + " bill of materials",
+		"profileConformance": []string{
+			"core", "software", "ai", "dataset", "simpleLicensing",
+		},
+		// No dataLicense: it is an SPDX 2.x property, and the 3.0.1 schema sets
+		// unevaluatedProperties:false, so carrying it over rejects the whole
+		// document element rather than just the one field.
+		"rootElement": []string{id("model")},
+	}
+
 	graph := []any{
+		docElement,
 		creationInfo,
 		map[string]any{
 			"type":         "Tool",
@@ -87,6 +106,15 @@ func SPDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
 	if a.Params.ParameterCount != "" {
 		hp = append(hp, entry("parameterCount", a.Params.ParameterCount))
 	}
+	// The measured count, kept distinct from any declared label. EU AI Act
+	// Annex XI 1(d) asks for "the number of parameters"; this is the one figure
+	// in that annex a reader can recompute from the bytes.
+	if a.Params.MeasuredParameters > 0 {
+		hp = append(hp, entry("measuredParameters", strconv.FormatInt(a.Params.MeasuredParameters, 10)))
+	}
+	if io := ioSummary(a); io != "" {
+		hp = append(hp, entry("inputOutputSignature", io))
+	}
 	for _, k := range slices.Sorted(maps.Keys(a.Params.Hyperparameters)) {
 		hp = append(hp, entry(k, a.Params.Hyperparameters[k]))
 	}
@@ -95,7 +123,7 @@ func SPDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
 	}
 	// The primary file's hash verifies the package.
 	if primary := a.PrimaryFile(); primary.SHA256 != "" {
-		aiPkg["verifiedUsing"] = []any{hashElement(primary.SHA256)}
+		aiPkg["verifiedUsing"] = hashElements(primary)
 	}
 	graph = append(graph, aiPkg)
 
@@ -111,7 +139,7 @@ func SPDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
 			"spdxId":        fileID,
 			"creationInfo":  "_:creationinfo",
 			"name":          f.Path,
-			"verifiedUsing": []any{hashElement(f.SHA256)},
+			"verifiedUsing": hashElements(f),
 		})
 		relationships = append(relationships, relationship(id, "rel-file-"+shortID(f.SHA256, f.Path),
 			id("model"), "contains", []string{fileID}))
@@ -192,6 +220,38 @@ func SPDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
 	return marshal(doc)
 }
 
+// ioSummary renders the graph signature as a single line.
+//
+// Annex XI 1(e) asks for "the modality and format of inputs and outputs". SPDX
+// has no structured slot for a tensor signature, so it goes in as a
+// hyperparameter entry rather than being dropped.
+func ioSummary(a *model.Artifact) string {
+	render := func(specs []model.IOSpec) string {
+		var parts []string
+		for _, s := range specs {
+			d := s.DType
+			if len(s.Shape) > 0 {
+				dims := make([]string, 0, len(s.Shape))
+				for _, n := range s.Shape {
+					if n < 0 {
+						dims = append(dims, "?") // symbolic axis, e.g. batch
+					} else {
+						dims = append(dims, strconv.FormatInt(n, 10))
+					}
+				}
+				d += "[" + strings.Join(dims, "x") + "]"
+			}
+			parts = append(parts, cmp.Or(s.Name, "?")+":"+d)
+		}
+		return strings.Join(parts, ", ")
+	}
+	in, out := render(a.Params.Inputs), render(a.Params.Outputs)
+	if in == "" && out == "" {
+		return ""
+	}
+	return "in(" + in + ") -> out(" + out + ")"
+}
+
 // findingLimitations renders findings as human-readable limitation lines,
 // most severe first so the worst is read first.
 func findingLimitations(a *model.Artifact) []string {
@@ -207,11 +267,24 @@ func findingLimitations(a *model.Artifact) []string {
 	return out
 }
 
-func hashElement(sha string) map[string]any {
+// hashElements emits every digest as an SPDX Hash. See hashesOf in the
+// CycloneDX emitter for why both are carried.
+func hashElements(f model.FileComponent) []any {
+	var out []any
+	if f.SHA256 != "" {
+		out = append(out, hashElement("sha256", f.SHA256))
+	}
+	if f.SHA384 != "" {
+		out = append(out, hashElement("sha384", f.SHA384))
+	}
+	return out
+}
+
+func hashElement(alg, value string) map[string]any {
 	return map[string]any{
 		"type":      "Hash",
-		"algorithm": "sha256",
-		"hashValue": sha,
+		"algorithm": alg,
+		"hashValue": value,
 	}
 }
 

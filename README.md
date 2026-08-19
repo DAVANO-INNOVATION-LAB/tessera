@@ -216,6 +216,7 @@ one. They establish that a specific claim is unsupported by the artifact.
 | `TESS-DRIFT-001` | High | The declared architecture does not match the model binary. |
 | `TESS-DRIFT-002` | High | The declared precision does not match the tensors — a quantized model presented as full precision. |
 | `TESS-DRIFT-004` | High | The shard set does not match the count the index names. |
+| `TESS-DRIFT-007` | High | The declared parameter count does not match the sum of the tensor shapes — a model sold as 8B whose weights are 3B. |
 | `TESS-DRIFT-003` | Medium | The declared quantization differs from the file. |
 | `TESS-DRIFT-006` | Medium | An executable weight format shipped beside a safe one; which one loads depends on the loader. |
 | `TESS-DRIFT-005` | Low | A declared claim that no present format can verify. Reported so it is not mistaken for a checked one. |

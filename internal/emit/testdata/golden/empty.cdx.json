@@ -25,6 +25,11 @@
           "value": "safetensors"
         }
       ]
-    }
+    },
+    "lifecycles": [
+      {
+        "phase": "post-build"
+      }
+    ]
   }
 }
