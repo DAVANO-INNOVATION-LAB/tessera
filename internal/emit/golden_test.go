@@ -129,7 +129,16 @@ func firstDifference(want, got []byte) string {
 			gl = g[i]
 		}
 		if wl != gl {
-			return "first difference at line " + strconv.Itoa(i+1) + ":\n  want: " + wl + "\n  got:  " + gl
+			msg := "first difference at line " + strconv.Itoa(i+1) + ":\n  want: " + wl + "\n  got:  " + gl
+			// Two lines that print identically differ in something invisible.
+			// Line-ending translation on checkout is the usual cause, and
+			// saying so beats leaving the reader staring at two equal-looking
+			// strings.
+			if strings.TrimRight(wl, "\r\t ") == strings.TrimRight(gl, "\r\t ") {
+				msg += "\n  (the lines differ only in trailing whitespace or line endings —" +
+					" check that .gitattributes marks the golden files -text)"
+			}
+			return msg
 		}
 	}
 	return "(documents differ only in trailing bytes)"
