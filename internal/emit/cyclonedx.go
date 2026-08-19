@@ -133,6 +133,10 @@ func modelCard(a *model.Artifact) *cdxModelCard {
 	mp := &cdxModelParams{
 		ArchitectureFamily: a.Params.ArchitectureFamily,
 		ModelArchitecture:  a.Params.Architecture,
+		// Declared, not measured: nothing in a weights file says what a model
+		// is for. It is emitted because CycloneDX has a field for it and the
+		// G7 minimum elements ask for it, not because it was verified.
+		Task: a.Declared.Task,
 	}
 	for _, ds := range a.Lineage.Datasets {
 		mp.Datasets = append(mp.Datasets, cdxDataset{Type: "dataset", Name: ds.Name})
@@ -146,7 +150,7 @@ func modelCard(a *model.Artifact) *cdxModelCard {
 	// Omit an all-empty modelParameters rather than emit a hollow object.
 	var mpp *cdxModelParams
 	if mp.ArchitectureFamily != "" || mp.ModelArchitecture != "" || len(mp.Datasets) > 0 ||
-		len(mp.Inputs) > 0 || len(mp.Outputs) > 0 {
+		mp.Task != "" || len(mp.Inputs) > 0 || len(mp.Outputs) > 0 {
 		mpp = mp
 	}
 
@@ -344,6 +348,8 @@ type cdxModelCard struct {
 }
 
 type cdxModelParams struct {
+	// Task is CycloneDX's field for what the model is for.
+	Task               string       `json:"task,omitempty"`
 	ArchitectureFamily string       `json:"architectureFamily,omitempty"`
 	ModelArchitecture  string       `json:"modelArchitecture,omitempty"`
 	Datasets           []cdxDataset `json:"datasets,omitempty"`

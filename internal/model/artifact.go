@@ -114,6 +114,14 @@ type Declared struct {
 	DType string `json:"dtype,omitempty"`
 	// Quantization is the declared quantization scheme, when one is named.
 	Quantization string `json:"quantization,omitempty"`
+	// Task is the pipeline the card advertises, e.g. text-generation. It is a
+	// claim, not a measurement — nothing in a weights file states what a model
+	// is for — so it lives here rather than in Parameters.
+	Task string `json:"task,omitempty"`
+	// Library is the framework the card names, e.g. transformers. Since
+	// August 2024 a config.json no longer implies transformers, so this is
+	// the only place the framework is stated rather than assumed.
+	Library string `json:"library,omitempty"`
 	// ParameterCount is a declared parameter count, when present.
 	ParameterCount string `json:"parameterCount,omitempty"`
 	// BaseModel is the parent this artifact claims to derive from.

@@ -62,10 +62,44 @@ func readModelCard(a *model.Artifact, dir string) {
 	}
 	// base_model may be a list, which on the Hub means a merge. Keeping the
 	// whole value preserves that rather than silently reporting one parent.
-	if a.Declared.BaseModel == "" {
-		if base := fields["base_model"]; base != "" {
+	if base := fields["base_model"]; base != "" {
+		if a.Declared.BaseModel == "" {
 			a.Declared.BaseModel = base
 		}
+		// Lineage is what a bill of materials carries; the declared field is
+		// what drift compares. Both are wanted, for different readers.
+		for _, name := range splitList(base) {
+			if !hasReference(a.Lineage.BaseModels, name) {
+				a.Lineage.BaseModels = append(a.Lineage.BaseModels, model.Reference{
+					Name: name, URL: hubURL(name),
+				})
+			}
+		}
+	}
+
+	// Training datasets. These are the G7 "SBOM for AI" Models-cluster
+	// training-properties element and the CycloneDX modelCard datasets field,
+	// and they were being read and discarded.
+	//
+	// A card's dataset list is a claim by the publisher — nothing in the
+	// weights confirms it — which is why it lands in Lineage rather than in
+	// anything measured.
+	for _, name := range splitList(fields["datasets"]) {
+		if !hasReference(a.Lineage.Datasets, name) {
+			a.Lineage.Datasets = append(a.Lineage.Datasets, model.Reference{
+				Name: name, URL: hubDatasetURL(name),
+			})
+		}
+	}
+
+	// The task the model is published for. CycloneDX has a dedicated field,
+	// and it is the only place an input/output shape can be inferred from a
+	// card without inventing one.
+	if a.Declared.Task == "" {
+		a.Declared.Task = fields["pipeline_tag"]
+	}
+	if a.Declared.Library == "" {
+		a.Declared.Library = fields["library_name"]
 	}
 	if a.Declared.Source == "" {
 		a.Declared.Source = "README.md"
@@ -290,4 +324,43 @@ func notePeerWeightFiles(a *model.Artifact, dir, primary string) {
 		sort.Strings(peers)
 		a.SetRaw("peer.executable_weights", strings.Join(peers, ", "))
 	}
+}
+
+// splitList expands the comma-joined form parseFrontmatter produces.
+func splitList(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func hasReference(refs []model.Reference, name string) bool {
+	for _, r := range refs {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// hubURL turns an owner/name reference into a resolvable location.
+//
+// Only applied to values that look like a Hub id. A local filesystem path is a
+// perfectly legal base_model value, and turning one into a URL would invent a
+// provenance link that does not exist.
+func hubURL(name string) string {
+	if strings.Count(name, "/") != 1 || strings.ContainsAny(name, " \\:") {
+		return ""
+	}
+	return "https://huggingface.co/" + name
+}
+
+func hubDatasetURL(name string) string {
+	if strings.Count(name, "/") != 1 || strings.ContainsAny(name, " \\:") {
+		return ""
+	}
+	return "https://huggingface.co/datasets/" + name
 }
