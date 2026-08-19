@@ -1,0 +1,141 @@
+// Package tessera reads a local AI model file — GGUF, safetensors, or ONNX —
+// and produces a normalized description of it: identity, licence, lineage,
+// parameters, per-file hashes, and the security findings its own metadata
+// discloses. That description renders to CycloneDX 1.6 and SPDX 3.0.1.
+//
+// This is the embedding surface. It is designed to be imported directly by
+// another Go program rather than shelled out to or run as a sidecar:
+//
+//	art, err := tessera.Analyze(ctx, "/models/llama3.gguf")
+//	if err != nil { return err }
+//	for _, f := range art.Findings { ... }
+//	bom, err := tessera.CycloneDX(art, time.Now())
+//
+// Three properties make that embedding safe, and they are load-bearing enough
+// that there are tests pinning them:
+//
+//   - Zero third-party dependencies. Only the Go standard library. An importer
+//     inherits no transitive dependency tree, so there is no version conflict
+//     to resolve and nothing new in its vendor directory or its image.
+//   - No hidden state and no logging. Nothing is written to stdout or stderr,
+//     ever — the caller owns all output. The one package-level variable is
+//     Version, which main sets once at startup and everything else only reads.
+//   - Safe for concurrent use. Analyze, Detect and the emitters may be called
+//     from any number of goroutines; a single *Artifact must not be mutated
+//     while another goroutine is reading it.
+//   - No network. The net package is not in the dependency tree, so an
+//     analysis cannot reach out even if a malicious artifact asks it to.
+//
+// Analysis reads headers and metadata only. It does not load a machine-learning
+// framework, does not resolve an ONNX custom operator, and does not follow an
+// ONNX external-data reference that escapes the model directory. Those are the
+// behaviours it exists to report, so triggering them would defeat the purpose.
+package tessera
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/emit"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/parse"
+)
+
+// Version identifies the build, and is stamped into the tools section of every
+// bill of materials so a consumer can tell which scanner made the claims.
+//
+// It is written once, from main, before any analysis starts, and only read
+// afterwards. Do not assign it from concurrent code: an earlier version of the
+// shared-library entry point assigned it on every call, which is a data race
+// between concurrent callers.
+var Version = "dev"
+
+// toolIdentity is what the emitters stamp into the document metadata.
+func toolIdentity() emit.Tool {
+	return emit.Tool{Name: "tessera", Version: Version, Vendor: "Davano Innovation Lab"}
+}
+
+// Analyze reads the model at path and returns its normalized description.
+//
+// path may be a single model file or a directory containing one. For a
+// directory, Analyze resolves the primary model file and gathers the physical
+// files belonging to it — gguf-split shards, a safetensors index's shard set,
+// ONNX external-data sidecars — hashing each independently so a multi-file
+// model is a set of pinned components rather than one opaque blob.
+//
+// A parse problem inside a recognized file is reported as a Finding, not as an
+// error: a malformed header is a fact about the artifact that the caller needs,
+// and returning it as an error would discard everything else that was read. An
+// error is returned only when there is nothing to describe at all — the path is
+// unreadable, or it holds no recognized model format.
+func Analyze(ctx context.Context, path string, opts ...Option) (*Artifact, error) {
+	cfg := newConfig(opts)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	return parse.Parse(ctx, path, cfg.parseOptions())
+}
+
+// Detect reports which model format the file at path is, without parsing it.
+// ok is false when the file is not a format this package understands. Detection
+// prefers content over extension, because an attacker renames files.
+func Detect(path string) (format Format, ok bool) {
+	return parse.Detect(path)
+}
+
+// CycloneDX renders the artifact as a CycloneDX 1.6 ML-BOM.
+//
+// generatedAt is supplied by the caller rather than read from the clock so that
+// output is reproducible: the same artifact and the same timestamp produce
+// byte-identical bytes. Findings are included as a vulnerability-disclosure
+// report affecting the model component, so the bill of materials and the risk
+// assessment cannot be separated in transit.
+func CycloneDX(a *Artifact, generatedAt time.Time) ([]byte, error) {
+	if a == nil {
+		return nil, fmt.Errorf("tessera: nil artifact")
+	}
+	return emit.CycloneDX(a, generatedAt, toolIdentity())
+}
+
+// SPDX renders the artifact as an SPDX 3.0.1 JSON-LD document using the AI and
+// Dataset profiles. As with CycloneDX, generatedAt is the caller's to supply.
+func SPDX(a *Artifact, generatedAt time.Time) ([]byte, error) {
+	if a == nil {
+		return nil, fmt.Errorf("tessera: nil artifact")
+	}
+	return emit.SPDX(a, generatedAt, toolIdentity())
+}
+
+// Severity ranks a finding's severity for ordering, lowest number most severe.
+// Callers mapping findings into their own model use this to sort or to derive a
+// gate decision without hard-coding the severity vocabulary.
+func Severity(s string) int {
+	switch s {
+	case SeverityCritical:
+		return 0
+	case SeverityHigh:
+		return 1
+	case SeverityMedium:
+		return 2
+	case SeverityLow:
+		return 3
+	}
+	return 4
+}
+
+// Worst returns the most severe severity among findings, or "" when there are
+// none. It is the one-line answer to "should this artifact be allowed through".
+func Worst(findings []Finding) string {
+	worst := ""
+	rank := 5
+	for _, f := range findings {
+		if r := Severity(f.Severity); r < rank {
+			rank, worst = r, f.Severity
+		}
+	}
+	return worst
+}

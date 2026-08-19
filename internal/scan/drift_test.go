@@ -1,0 +1,123 @@
+package scan
+
+import (
+	"testing"
+
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
+)
+
+func driftIDs(a *model.Artifact) []string {
+	var ids []string
+	for _, f := range analyzeDrift(a) {
+		ids = append(ids, f.ID)
+	}
+	return ids
+}
+
+func hasIn(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestDriftDType(t *testing.T) {
+	cases := []struct {
+		name, declared, measured string
+		wantFinding              bool
+	}{
+		{"vocabularies agree", "bfloat16", "BF16", false},
+		{"float16 agrees", "float16", "F16", false},
+		{"same string", "F32", "F32", false},
+		{"quantized sold as full precision", "bfloat16", "F8_E4M3", true},
+		{"nothing declared", "", "BF16", false},
+		{"nothing measured", "bfloat16", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := &model.Artifact{
+				Declared: model.Declared{Source: "config.json", DType: c.declared},
+				Params:   model.Parameters{DType: c.measured},
+			}
+			got := hasIn(driftIDs(a), DriftDType)
+			if got != c.wantFinding {
+				t.Errorf("declared=%q measured=%q: finding=%v, want %v",
+					c.declared, c.measured, got, c.wantFinding)
+			}
+		})
+	}
+}
+
+func TestDriftArchitecture(t *testing.T) {
+	// The two naming conventions must not be reported as a mismatch, or every
+	// model on the hub becomes a finding and the check is worthless.
+	agree := &model.Artifact{
+		Declared: model.Declared{Source: "config.json", Architecture: "LlamaForCausalLM"},
+		Params:   model.Parameters{Architecture: "llama"},
+	}
+	if hasIn(driftIDs(agree), DriftArchitecture) {
+		t.Error("LlamaForCausalLM vs llama should agree")
+	}
+
+	disagree := &model.Artifact{
+		Declared: model.Declared{Source: "config.json", Architecture: "MistralForCausalLM"},
+		Params:   model.Parameters{Architecture: "llama"},
+	}
+	if !hasIn(driftIDs(disagree), DriftArchitecture) {
+		t.Error("MistralForCausalLM vs llama should be reported")
+	}
+
+	// A claim with nothing to check it against is reported as uncheckable, not
+	// as agreement — silence would imply it had been verified.
+	unchecked := &model.Artifact{
+		Declared: model.Declared{Source: "config.json", Architecture: "LlamaForCausalLM"},
+	}
+	if !hasIn(driftIDs(unchecked), DriftUncheckable) {
+		t.Error("an unverifiable architecture claim should be reported as such")
+	}
+}
+
+func TestDriftShardCount(t *testing.T) {
+	short := &model.Artifact{
+		Declared: model.Declared{ShardCount: 3},
+		Files: []model.FileComponent{
+			{Role: "primary"}, {Role: "shard"}, {Role: "shard"},
+		},
+	}
+	if !hasIn(driftIDs(short), DriftShardCount) {
+		t.Error("a shard set short of the index should be reported")
+	}
+
+	complete := &model.Artifact{
+		Declared: model.Declared{ShardCount: 2},
+		Files: []model.FileComponent{
+			{Role: "primary"}, {Role: "shard"}, {Role: "shard"},
+		},
+	}
+	if hasIn(driftIDs(complete), DriftShardCount) {
+		t.Error("a complete shard set should not be reported")
+	}
+}
+
+func TestDriftMixedFormats(t *testing.T) {
+	mixed := &model.Artifact{
+		Format: model.FormatSafetensors,
+		Files: []model.FileComponent{
+			{Path: "model.safetensors", Role: "primary"},
+			{Path: "pytorch_model.bin", Role: "shard"},
+		},
+	}
+	if !hasIn(driftIDs(mixed), DriftMixedFormats) {
+		t.Error("a pickle beside safetensors should be reported")
+	}
+
+	clean := &model.Artifact{
+		Format: model.FormatSafetensors,
+		Files:  []model.FileComponent{{Path: "model.safetensors", Role: "primary"}},
+	}
+	if hasIn(driftIDs(clean), DriftMixedFormats) {
+		t.Error("safetensors alone should not be reported")
+	}
+}
