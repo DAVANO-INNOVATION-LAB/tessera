@@ -82,6 +82,11 @@
           "key": "embedding_length",
           "type": "DictionaryEntry",
           "value": "4096"
+        },
+        {
+          "key": "primaryFile",
+          "type": "DictionaryEntry",
+          "value": "model.gguf"
         }
       ],
       "ai_limitation": "[High] TESS-GGUF-010: Executable chat template\n[Low] TESS-LIC-001: No license disclosed",

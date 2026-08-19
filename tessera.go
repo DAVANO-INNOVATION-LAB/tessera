@@ -40,6 +40,7 @@ import (
 
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/emit"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/parse"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/verify"
 )
 
 // Version identifies the build, and is stamped into the tools section of every
@@ -138,4 +139,33 @@ func Worst(findings []Finding) string {
 		}
 	}
 	return worst
+}
+
+// Verify checks a bill of materials against the artifact it claims to describe.
+//
+// This is the inverse of generating one, and the operation that matters at the
+// point of use: a document produced at build time says nothing about the bytes
+// in front of you now unless somebody checks. Korea's Framework Act requires
+// inspecting the "currency and accuracy" of such documents, Canada's ITSP.80.101
+// says to verify integrity before a model is loaded, and the G7 minimum elements
+// name a hash algorithm from the IANA registry precisely so a third party can
+// recompute it. Verify is that recomputation.
+//
+// documentPath is a CycloneDX or SPDX document, detected by content rather than
+// by filename. artifactPath is the model, analysed fresh. Where the two
+// disagree, the bytes are treated as true and the report names the failed claim.
+//
+// A document whose claims all pass but which omits a file that is present is
+// reported as unverified: an undocumented component is the shape a smuggled
+// payload takes.
+func Verify(ctx context.Context, documentPath, artifactPath string, opts ...Option) (*VerifyResult, error) {
+	doc, err := verify.ReadDocument(documentPath)
+	if err != nil {
+		return nil, err
+	}
+	art, err := Analyze(ctx, artifactPath, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return verify.Verify(ctx, doc, art), nil
 }
