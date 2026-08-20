@@ -118,8 +118,23 @@ func Inspect(ctx context.Context, root string, opts ...Option) (*InspectReport, 
 	return inspect.Inspect(root, limits)
 }
 
-// InspectLimits bound the inspector's work.
+// InspectLimits are the default bounds on the inspector's work.
 func InspectLimits() InspectLimitSet { return inspect.DefaultLimits() }
+
+// InspectLimited walks an artifact under caller-supplied bounds.
+//
+// Inspect takes the package's Option values, which can express a file cap and
+// nothing else. The other three bounds — archive entries, decompressed bytes,
+// compression ratio — are the ones that matter against a decompression bomb, so
+// a caller that needs to tighten them needs a way to pass the whole set. An
+// embedder that could only reach one of the four would have to choose between
+// the library's defaults and no defence at all.
+func InspectLimited(ctx context.Context, root string, limits InspectLimitSet) (*InspectReport, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return inspect.Inspect(root, limits)
+}
 
 // CycloneDX renders the artifact as a CycloneDX ML-BOM at the default spec
 // version (1.6). Use CycloneDXVersion to choose one.
