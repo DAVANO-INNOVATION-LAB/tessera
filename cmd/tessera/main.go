@@ -52,6 +52,8 @@ func main() {
 		os.Exit(exitUsage)
 	}
 	switch os.Args[1] {
+	case "scan":
+		os.Exit(runScan(os.Args[2:]))
 	case "bom":
 		os.Exit(runBOM(os.Args[2:]))
 	case "inspect":
@@ -87,6 +89,7 @@ and emits an AI bill of materials in CycloneDX (1.6 or 1.7) and SPDX 3.0.1, plus
 security findings the metadata discloses. It reads only headers and metadata and
 never touches the network, so it is safe against an untrusted artifact offline.
 
+  scan      parse, inspect, document and judge in one pass
   bom       write the bill of materials
   inspect   read the metadata and findings without writing a document
   verify    check an existing document against the bytes it claims to describe

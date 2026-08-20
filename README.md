@@ -65,6 +65,15 @@ that is usually missing. A document whose claims all pass but which omits a file
 that is present is reported as **not verified** — an undocumented component is
 the shape a smuggled payload takes.
 
+**It judges, not just describes.** `tessera scan` runs the parse, the deep walk,
+the document emitters and a policy gate in one pass, and exits on the verdict.
+The gate is the same one that decides admission inside a Kubernetes cluster —
+thresholds, format allow-lists, signature and bill-of-materials requirements,
+time-boxed waivers bound to a content digest. It needs no cluster to run,
+because none of it was ever orchestration: a threshold comparison is
+computation. Rules are JSON, since the standard library parses that and the
+zero-dependency guarantee is worth more than YAML.
+
 **It reports its own coverage.** `tessera coverage` maps the output against the
 **CISA/NSA/FBI 2026 Minimum Elements** (29 July 2026, which replaced the 2021
 NTIA elements), the **G7 SBOM for AI minimum elements** (May 2026), **CERT-In's
@@ -198,6 +207,9 @@ make all     # CLI + FFI library + WebAssembly
 ## Use
 
 ```bash
+# Everything in one pass: parse, deep walk, document, judge
+tessera scan ./model-dir --out ./boms
+
 # Human-readable read of a model's metadata and findings
 tessera inspect model.gguf
 
