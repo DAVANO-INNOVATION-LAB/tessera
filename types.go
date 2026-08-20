@@ -2,6 +2,7 @@ package tessera
 
 import (
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/coverage"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/inspect"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/verify"
 )
@@ -68,6 +69,11 @@ type (
 	CoverageElement = coverage.Element
 	// CoverageStatus is whether an element was supplied.
 	CoverageStatus = coverage.Status
+
+	// InspectReport is the output of a deep walk over a staged artifact.
+	InspectReport = inspect.Report
+	// InspectLimitSet bounds that walk.
+	InspectLimitSet = inspect.Limits
 )
 
 // Coverage statuses.

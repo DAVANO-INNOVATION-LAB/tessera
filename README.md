@@ -216,6 +216,9 @@ tessera bom ./model-dir --out ./boms
 # Byte-identical output for the same input (timestamp from the file mtime)
 tessera bom model.onnx --format spdx --reproducible
 
+# Deep walk: also read the formats that CAN carry code, beside the model
+tessera inspect ./model-dir --deep
+
 # Check a document against the artifact it claims to describe
 tessera verify model.cdx.json ./model-dir
 
@@ -281,6 +284,56 @@ suppressions — so the list is complete rather than illustrative.
 | `TESS-ST-003` | Medium | A safetensors header that is not valid JSON. |
 | `TESS-ONNX-005` | Medium | The protobuf walk stopped early. What was read is reported; the rest was not. |
 | `TESS-ONNX-006` | Medium | The file exceeds the parse ceiling, so its graph was not examined. |
+
+### Executable payloads beside the model (`--deep`)
+
+GGUF, safetensors and ONNX are the formats that **cannot** carry code — which is
+why an attack lands in the pickle, the Keras `Lambda`, or the TensorFlow graph op
+sitting in the same directory. `tessera inspect --deep` walks the whole artifact
+and reads those formats too, so a clean weights file next to a poisoned tokenizer
+is not reported as a clean artifact.
+
+| ID | Severity | What |
+|----|----------|------|
+| `TESS-PICKLE-001` | Critical | A pickle imports a dangerous callable (`os.system`, `subprocess.*`, `builtins.eval`, …). Executes on load. |
+| `TESS-PY-001` | Critical | Python in the artifact executes a shell command. |
+| `TESS-HF-001` | Critical | `trust_remote_code` is enabled, so loading runs code fetched with the model. |
+| `TESS-ARCHIVE-003` | Critical | An archive entry whose path escapes the extraction root. |
+| `TESS-ONNX-002` | Critical | An ONNX `external_data` path traversing outside the model directory. |
+| `TESS-CONFIG-001` | Critical/High | A config naming a callable a Hydra-style loader imports and calls before any weight is read. |
+| `TESS-KERAS-001` | High | A Keras `Lambda` layer, which carries arbitrary serialized Python. |
+| `TESS-KERAS-002` | High | A layer that loads another model from a path in the config. |
+| `TESS-KERAS-003` | High | A layer implemented outside the Keras and TensorFlow namespaces. |
+| `TESS-TF-001` | High | A SavedModel graph op that reads, writes or executes outside the graph (`PyFunc`, `ReadFile`, `WriteFile`, `Save`). |
+| `TESS-ONNX-001` | High | A suspicious ONNX operator (`PythonOp`, `TorchScript`, contrib custom ops). |
+| `TESS-HF-002` | High | Custom `auto_map` classes, which resolve to code shipped with the model. |
+| `TESS-NATIVE-001` | High | A native shared library inside the artifact. |
+| `TESS-BIN-001` | High | An ELF executable inside the artifact. |
+| `TESS-BIN-002` | High | A PE executable inside the artifact. |
+| `TESS-BIN-003` | High | A Mach-O executable inside the artifact. |
+| `TESS-PY-002` | High | Python dynamic code execution (`eval`, `exec`, `compile`). |
+| `TESS-PY-003` | High | Python network egress. |
+| `TESS-PY-004` | High | An unsafe deserialization call. |
+| `TESS-PY-006` | High | A custom native extension. |
+| `TESS-NPY-001` | High | An object-dtype NumPy array, which unpickles on load. |
+| `TESS-ARCHIVE-002` | High | An archive exceeding the entry cap; the rest was not examined. |
+| `TESS-ARCHIVE-004` | High | A symlink inside an archive. |
+| `TESS-ARCHIVE-005` | High | An archive exceeding the decompression cap. |
+| `TESS-ARCHIVE-006` | High | A compression ratio consistent with a decompression bomb. |
+| `TESS-LINK-001` | High | A symlink escaping the model directory. |
+| `TESS-COVERAGE-001` | High | The walk was truncated, so part of the artifact was never examined. A clean result over a partial walk is not a clean artifact. |
+| `TESS-KERAS-004` | Medium | A Keras container that could not be examined. |
+| `TESS-PICKLE-002` | Medium | A Torch zip container. |
+| `TESS-PICKLE-004` | Medium | An unsafe serialization format where a safe one exists. |
+| `TESS-EXEC-001` | Medium | A file carrying the executable bit. |
+| `TESS-SHELL-001` | Medium | A shell script inside the artifact. |
+| `TESS-SHELL-002` | Medium | A script with an interpreter directive. |
+| `TESS-PY-005` | Medium | A base64-decoded payload. |
+| `TESS-NPY-002` | Medium | An invalid NumPy header length. |
+| `TESS-ARCHIVE-001` | Medium | A malformed archive. |
+| `TESS-IO-001` | Medium | A file that could not be read. |
+| `TESS-IO-002` | Medium/High | Inspection of a file failed part-way. |
+| `TESS-PICKLE-003` | Low | Pickle-based weights execute code on load. Inherent to the format, not a defect in this model. |
 
 ### Declared versus measured
 
@@ -359,6 +412,7 @@ internal/parse         gguf / safetensors / onnx parsers + protobuf wire reader
 internal/spdxlicense   raw license string → SPDX identifier
 internal/scan          IR → security findings
 internal/emit          CycloneDX, SPDX 3.0.1 and SARIF emitters
+internal/inspect       deep walk: pickle, Keras, SavedModel, archives, Python
 ```
 
 Parsers and emitters stay in `internal/`, so they are free to change without

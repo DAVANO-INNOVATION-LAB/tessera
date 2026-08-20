@@ -299,15 +299,37 @@ func parseFormats(s string) ([]string, error) {
 func runInspect(args []string) int {
 	fs := flag.NewFlagSet("inspect", flag.ContinueOnError)
 	jsonOut := fs.Bool("json", false, "emit the parsed artifact as JSON")
+	deep := fs.Bool("deep", false, "also walk the directory for executable formats (pickle, Keras, SavedModel, archives)")
 	path, err := parseWithPositional(fs, args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Usage: tessera inspect <path> [--json]")
+		fmt.Fprintln(os.Stderr, "Usage: tessera inspect <path> [--json] [--deep]")
 		return exitUsage
 	}
 	artifact, err := tessera.Analyze(context.Background(), path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tessera inspect: %v\n", err)
 		return exitError
+	}
+
+	// The deep walk answers a different question from the parse. GGUF,
+	// safetensors and ONNX are the formats that cannot carry code; the attack
+	// lands in the pickle or the Keras Lambda sitting beside them, which a scan
+	// that only opened the model would report as clean.
+	if *deep {
+		report, err := tessera.Inspect(context.Background(), inspectRoot(path))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tessera inspect: %v\n", err)
+			return exitError
+		}
+		artifact.Findings = mergeFindings(artifact.Findings, report.Findings)
+		if report.Truncated {
+			artifact.Findings = append(artifact.Findings, tessera.Finding{
+				ID: "TESS-COVERAGE-001", Title: "Artifact walk was truncated", Severity: "Medium",
+				Category: "model", Location: path,
+				Description: "the file cap was reached, so part of the artifact was never examined; " +
+					"a clean result over a partial walk is not a clean artifact",
+			})
+		}
 	}
 
 	if *jsonOut {
@@ -423,6 +445,40 @@ func severityOrNone(s string) string {
 		return "none"
 	}
 	return s
+}
+
+// inspectRoot resolves the directory to walk. Pointing --deep at a single model
+// file should still examine what sits beside it, since that is where an
+// executable payload would be.
+func inspectRoot(path string) string {
+	if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		return filepath.Dir(path)
+	}
+	return path
+}
+
+// mergeFindings appends the walk's findings to the parser's, dropping any that
+// the parser already reported for the same place.
+//
+// The two subsystems overlap deliberately on safetensors: the parser reads the
+// header as part of describing the model, and the walker reads it again because
+// it cannot assume the parser ran. Reporting the same defect twice would inflate
+// the count and make one artifact look worse than another for no reason, so the
+// parser's finding wins — it is the one that had the whole file open.
+func mergeFindings(parsed, walked []tessera.Finding) []tessera.Finding {
+	seen := make(map[string]bool, len(parsed))
+	for _, f := range parsed {
+		seen[f.ID+"\x00"+f.Location] = true
+	}
+	for _, f := range walked {
+		key := f.ID + "\x00" + f.Location
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		parsed = append(parsed, f)
+	}
+	return parsed
 }
 
 func exitCode(a *tessera.Artifact) int {

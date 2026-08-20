@@ -40,6 +40,7 @@ import (
 
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/coverage"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/emit"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/inspect"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/parse"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/verify"
 )
@@ -88,6 +89,37 @@ func Analyze(ctx context.Context, path string, opts ...Option) (*Artifact, error
 func Detect(path string) (format Format, ok bool) {
 	return parse.Detect(path)
 }
+
+// Inspect walks a staged artifact directory and reports risks that live in the
+// files around the model as much as in the model itself.
+//
+// This is a different question from Analyze. Analyze opens one model and
+// describes it; Inspect walks everything present and asks what a loader would
+// execute. That distinction matters because the formats Tessera parses natively
+// — GGUF, safetensors, ONNX — are precisely the ones that cannot carry code. The
+// attack lands in the pickle, the Keras Lambda layer, or the TensorFlow graph op
+// sitting in the same directory, and a scan that only opened the safetensors
+// would report a clean artifact.
+//
+// It examines pickle and PyTorch containers by opcode, Keras archives and HDF5
+// configs, TensorFlow SavedModel graphs, NumPy arrays, ZIP and tar archives,
+// and loose Python. Bounded by default so a hostile artifact cannot exhaust the
+// host; a walk that hits a cap reports Truncated rather than a clean result,
+// because a clean report over a partial walk is not a clean artifact.
+func Inspect(ctx context.Context, root string, opts ...Option) (*InspectReport, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	cfg := newConfig(opts)
+	limits := inspect.DefaultLimits()
+	if cfg.maxFiles > 0 {
+		limits.MaxFiles = cfg.maxFiles
+	}
+	return inspect.Inspect(root, limits)
+}
+
+// InspectLimits bound the inspector's work.
+func InspectLimits() InspectLimitSet { return inspect.DefaultLimits() }
 
 // CycloneDX renders the artifact as a CycloneDX ML-BOM at the default spec
 // version (1.6). Use CycloneDXVersion to choose one.
