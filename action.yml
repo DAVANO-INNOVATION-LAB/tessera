@@ -1,0 +1,201 @@
+name: "Tessera AI bill of materials"
+description: >-
+  Generate a CycloneDX / SPDX bill of materials and a SARIF report from a model
+  artifact, offline, and raise the findings as code-scanning alerts.
+author: "Davano Innovation Lab"
+
+branding:
+  icon: "layers"
+  color: "gray-dark"
+
+inputs:
+  path:
+    description: "Model file or directory to analyze."
+    required: true
+  version:
+    description: >-
+      Tessera release to run, without the leading v (for example 0.4.0), or
+      "latest".
+    required: false
+    default: "latest"
+  format:
+    description: "Comma list of cyclonedx, spdx, sarif."
+    required: false
+    default: "cyclonedx,spdx,sarif"
+  cyclonedx-version:
+    description: "CycloneDX specification version: 1.6 or 1.7."
+    required: false
+    default: "1.6"
+  output-dir:
+    description: "Directory the documents are written to."
+    required: false
+    default: "tessera-output"
+  fail-on:
+    description: >-
+      Fail the step when a finding at or above this severity is present:
+      critical, high, medium, low, or never.
+    required: false
+    default: "critical"
+  upload-sarif:
+    description: >-
+      Upload the SARIF report to GitHub code scanning. Requires
+      security-events: write on the calling job.
+    required: false
+    default: "true"
+  verify-signature:
+    description: >-
+      Verify the release's Sigstore signature before running it. Turning this
+      off skips the check that the binary is the one this repository published.
+    required: false
+    default: "true"
+
+outputs:
+  output-dir:
+    description: "Directory the documents were written to."
+    value: ${{ inputs.output-dir }}
+  sarif-file:
+    description: "Path to the SARIF report, when one was requested."
+    value: ${{ steps.run.outputs.sarif-file }}
+  worst-severity:
+    description: "Highest severity found: Critical, High, Medium, Low, or none."
+    value: ${{ steps.run.outputs.worst-severity }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install cosign
+      if: inputs.verify-signature == 'true'
+      uses: sigstore/cosign-installer@v3
+
+    - name: Download and verify Tessera
+      shell: bash
+      env:
+        REPO: DAVANO-INNOVATION-LAB/tessera
+        GH_TOKEN: ${{ github.token }}
+        REQUESTED: ${{ inputs.version }}
+        VERIFY: ${{ inputs.verify-signature }}
+      run: |
+        set -euo pipefail
+
+        case "$RUNNER_OS" in
+          Linux)   os=linux   ;;
+          macOS)   os=darwin  ;;
+          Windows) os=windows ;;
+          *) echo "::error::unsupported runner OS: $RUNNER_OS"; exit 1 ;;
+        esac
+        case "$RUNNER_ARCH" in
+          X64)   arch=amd64 ;;
+          ARM64) arch=arm64 ;;
+          *) echo "::error::unsupported runner architecture: $RUNNER_ARCH"; exit 1 ;;
+        esac
+        ext=""; [ "$os" = windows ] && ext=".exe"
+
+        if [ "$REQUESTED" = "latest" ]; then
+          tag="$(gh release view --repo "$REPO" --json tagName -q .tagName)"
+        else
+          tag="v${REQUESTED#v}"
+        fi
+        echo "using $REPO $tag for $os/$arch"
+
+        work="$(mktemp -d)"
+        binary="tessera-${os}-${arch}${ext}"
+        gh release download "$tag" --repo "$REPO" \
+          --pattern "$binary" --pattern "checksums.txt*" --dir "$work"
+
+        # The signature covers checksums.txt, and checksums.txt covers the
+        # binary. Verifying in that order means a tampered binary fails even
+        # though only one file was signed.
+        if [ "$VERIFY" = "true" ]; then
+          cosign verify-blob \
+            --certificate "$work/checksums.txt.pem" \
+            --signature "$work/checksums.txt.sig" \
+            --certificate-identity-regexp "^https://github.com/${REPO}/" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$work/checksums.txt"
+          echo "release signature verified"
+        else
+          echo "::warning::signature verification disabled; the binary is not being checked against what this repository published"
+        fi
+
+        ( cd "$work" && sha256sum --check --ignore-missing checksums.txt )
+
+        install -d "$RUNNER_TEMP/tessera-bin"
+        mv "$work/$binary" "$RUNNER_TEMP/tessera-bin/tessera${ext}"
+        chmod +x "$RUNNER_TEMP/tessera-bin/tessera${ext}"
+        echo "$RUNNER_TEMP/tessera-bin" >> "$GITHUB_PATH"
+
+    - name: Run Tessera
+      id: run
+      shell: bash
+      env:
+        TARGET: ${{ inputs.path }}
+        FORMAT: ${{ inputs.format }}
+        CDX_VERSION: ${{ inputs.cyclonedx-version }}
+        OUT_DIR: ${{ inputs.output-dir }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        set -uo pipefail
+
+        if [ ! -e "$TARGET" ]; then
+          echo "::error::path not found: $TARGET"
+          exit 1
+        fi
+        mkdir -p "$OUT_DIR"
+
+        # The threshold is applied by the CLI, not here. Exit codes 2 and 3
+        # cannot separate High from Medium, so a gate implemented in this script
+        # would fail on Medium whenever it was asked to fail on High.
+        set +e
+        tessera bom "$TARGET" \
+          --format "$FORMAT" \
+          --cyclonedx-version "$CDX_VERSION" \
+          --fail-on "$FAIL_ON" \
+          --out "$OUT_DIR" 2>"$RUNNER_TEMP/tessera.err"
+        code=$?
+        set -e
+        cat "$RUNNER_TEMP/tessera.err" >&2
+
+        # 64 means the command line was wrong and nothing was scanned; 1 means
+        # the scan itself failed. Neither is a finding, so neither is subject to
+        # the fail-on threshold — both are always errors.
+        case "$code" in
+          0|2|3) ;;
+          64) echo "::error::tessera rejected its arguments"; exit 1 ;;
+          *)  echo "::error::tessera failed to scan $TARGET"; exit 1 ;;
+        esac
+
+        # Read the severity from the summary line rather than the exit code.
+        # With a threshold set, a gated run exits clean while still having found
+        # something, so the code alone would report "none" for a real finding.
+        worst="$(sed -n 's/^worst severity: \([A-Za-z]*\).*/\1/p' "$RUNNER_TEMP/tessera.err" | tail -1)"
+        worst="${worst:-none}"
+        echo "worst-severity=$worst" >> "$GITHUB_OUTPUT"
+
+        sarif="$(find "$OUT_DIR" -name '*.sarif.json' -print -quit 2>/dev/null || true)"
+        echo "sarif-file=$sarif" >> "$GITHUB_OUTPUT"
+
+        {
+          echo "### Tessera"
+          echo
+          echo "Scanned \`$TARGET\` — highest severity: **$worst**"
+          echo
+          echo "Documents written to \`$OUT_DIR\`:"
+          echo
+          for f in "$OUT_DIR"/*; do [ -f "$f" ] && echo "- \`$(basename "$f")\`"; done
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        if [ "$code" -ne 0 ]; then
+          echo "::error::findings at or above '$FAIL_ON' (highest: $worst)"
+          exit 1
+        fi
+        exit 0
+
+    # Runs even when the step above failed the build on findings: the alerts are
+    # most useful precisely in that case, and a gate that suppresses its own
+    # evidence is worse than no gate.
+    - name: Upload SARIF
+      if: ${{ always() && inputs.upload-sarif == 'true' && steps.run.outputs.sarif-file != '' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.run.outputs.sarif-file }}
+        category: tessera

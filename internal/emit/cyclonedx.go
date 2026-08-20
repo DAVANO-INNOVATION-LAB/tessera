@@ -1,5 +1,6 @@
 // Package emit serializes a parsed Artifact into standard bills of materials.
-// Two emitters read the identical IR — CycloneDX 1.6 and SPDX 3.0.1 — so the
+// Two emitters read the identical IR — CycloneDX (1.6 or 1.7) and SPDX 3.0.1 —
+// so the
 // two documents can never disagree about the same model. Both are deterministic
 // given their inputs: the only varying field is the timestamp, which the caller
 // supplies, so the same file and the same clock produce byte-identical output.
@@ -34,17 +35,53 @@ type Tool struct {
 	Vendor  string
 }
 
-// CycloneDX renders the artifact as a CycloneDX 1.6 ML-BOM. The modelCard is
-// hand-serialized because the reference cyclonedx libraries still do not model
-// it (CycloneDX/cyclonedx-python-lib#912); emitting the schema directly is the
-// only faithful path today.
+// Supported CycloneDX specification versions.
+//
+// 1.6 stays the default because it is what the surrounding ecosystem consumes
+// today; 1.7 is offered for readers that require the current spec. The two are
+// interchangeable for this document: the modelCard and componentData schemas
+// are property-for-property identical across them, verified against both
+// published schemas rather than assumed, so the same IR serializes to either
+// without losing or inventing a field. What 1.7 adds — citations, patent
+// assertions, component version ranges — describes facts a model binary does
+// not carry, so nothing here would populate them.
+const (
+	CycloneDX16 = "1.6"
+	CycloneDX17 = "1.7"
+
+	// CycloneDXDefault is the version CycloneDX emits when none is named.
+	CycloneDXDefault = CycloneDX16
+)
+
+// CycloneDX renders the artifact as a CycloneDX ML-BOM at the default spec
+// version. The modelCard is hand-serialized because the reference cyclonedx
+// libraries still do not model it (CycloneDX/cyclonedx-python-lib#912);
+// emitting the schema directly is the only faithful path today.
 func CycloneDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
+	return CycloneDXVersion(a, generatedAt, tool, CycloneDXDefault)
+}
+
+// CycloneDXVersion renders the artifact at a named CycloneDX spec version.
+//
+// An unrecognized version is an error rather than a silent fallback. A document
+// whose specVersion does not match the shape it was written to is worse than no
+// document: it validates against the wrong schema and misleads every reader
+// downstream.
+func CycloneDXVersion(a *model.Artifact, generatedAt time.Time, tool Tool, specVersion string) ([]byte, error) {
+	switch specVersion {
+	case CycloneDX16, CycloneDX17:
+	default:
+		return nil, fmt.Errorf(
+			"unsupported CycloneDX version %q; supported: %s, %s",
+			specVersion, CycloneDX16, CycloneDX17)
+	}
+
 	primary := a.PrimaryFile()
 	modelRef := "urn:tessera:model:" + shortID(primary.SHA256, a.Identity.Name)
 
 	doc := cdxDoc{
 		BOMFormat:    "CycloneDX",
-		SpecVersion:  "1.6",
+		SpecVersion:  specVersion,
 		SerialNumber: "urn:uuid:" + deterministicUUID(primary.SHA256+a.Identity.Name),
 		Version:      1,
 		Metadata: cdxMetadata{

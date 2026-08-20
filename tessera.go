@@ -89,7 +89,8 @@ func Detect(path string) (format Format, ok bool) {
 	return parse.Detect(path)
 }
 
-// CycloneDX renders the artifact as a CycloneDX 1.6 ML-BOM.
+// CycloneDX renders the artifact as a CycloneDX ML-BOM at the default spec
+// version (1.6). Use CycloneDXVersion to choose one.
 //
 // generatedAt is supplied by the caller rather than read from the clock so that
 // output is reproducible: the same artifact and the same timestamp produce
@@ -103,6 +104,22 @@ func CycloneDX(a *Artifact, generatedAt time.Time) ([]byte, error) {
 	return emit.CycloneDX(a, generatedAt, toolIdentity())
 }
 
+// Supported CycloneDX specification versions. 1.6 is the default; 1.7 is
+// available for readers that require the current spec.
+const (
+	CycloneDX16 = emit.CycloneDX16
+	CycloneDX17 = emit.CycloneDX17
+)
+
+// CycloneDXVersion renders the artifact as a CycloneDX ML-BOM at a named spec
+// version. An unrecognized version is an error rather than a silent fallback.
+func CycloneDXVersion(a *Artifact, generatedAt time.Time, specVersion string) ([]byte, error) {
+	if a == nil {
+		return nil, fmt.Errorf("tessera: nil artifact")
+	}
+	return emit.CycloneDXVersion(a, generatedAt, toolIdentity(), specVersion)
+}
+
 // SPDX renders the artifact as an SPDX 3.0.1 JSON-LD document using the AI and
 // Dataset profiles. As with CycloneDX, generatedAt is the caller's to supply.
 func SPDX(a *Artifact, generatedAt time.Time) ([]byte, error) {
@@ -110,6 +127,16 @@ func SPDX(a *Artifact, generatedAt time.Time) ([]byte, error) {
 		return nil, fmt.Errorf("tessera: nil artifact")
 	}
 	return emit.SPDX(a, generatedAt, toolIdentity())
+}
+
+// SARIF renders the artifact's findings as a SARIF 2.1.0 log, the format code
+// scanning pipelines ingest. A model with no findings produces a valid log with
+// no results, which reports a clean scan rather than a broken step.
+func SARIF(a *Artifact, generatedAt time.Time) ([]byte, error) {
+	if a == nil {
+		return nil, fmt.Errorf("tessera: nil artifact")
+	}
+	return emit.SARIF(a, generatedAt, toolIdentity())
 }
 
 // Severity ranks a finding's severity for ordering, lowest number most severe.

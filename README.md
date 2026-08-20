@@ -2,9 +2,10 @@
 
 **Offline AI bill-of-materials generator for model files.** Tessera reads a
 local **GGUF**, **safetensors**, or **ONNX** file — off disk, no framework, no
-network — and emits a normalized bill of materials in both **CycloneDX 1.6** and
-**SPDX 3.0.1** from a single parse, with the security findings the metadata
-discloses attached to the same document.
+network — and emits a normalized bill of materials in both **CycloneDX
+(1.6 or 1.7)** and **SPDX 3.0.1** from a single parse, with the security findings
+the metadata discloses attached to the same document and to a **SARIF 2.1.0**
+report for code scanning.
 
 It is named for the *tessera hospitalis*, a token two parties broke in half so
 either could later prove the other's provenance. That is the job: turn the bytes
@@ -49,9 +50,11 @@ Hugging Face API. Tessera does it from local bytes, which is the case that
 matters in an air-gapped enclave, and it is why the comparison happens in the
 parser rather than in a hub client.
 
-**It emits both standards from a single parse,** so the CycloneDX 1.6
+**It emits both standards from a single parse,** so the CycloneDX
 `modelCard` and the SPDX 3.0.1 `ai_AIPackage` describe the same read and cannot
-disagree with each other about the same artifact.
+disagree with each other about the same artifact. CycloneDX 1.6 is the default
+and 1.7 is a flag away; the two documents are identical apart from the declared
+`specVersion`, which is asserted by a test rather than assumed.
 
 **It verifies, not just generates.** `tessera verify` takes a bill of materials
 and the artifact it claims to describe, and asks whether the document still
@@ -63,8 +66,9 @@ that is present is reported as **not verified** — an undocumented component is
 the shape a smuggled payload takes.
 
 **It reports its own coverage.** `tessera coverage` maps the output against the
-**G7 SBOM for AI minimum elements** (May 2026), **CERT-In's AIBOM table**, and
-**BSI TR-03183-2** — the only published technical specification of what a Cyber
+**CISA/NSA/FBI 2026 Minimum Elements** (29 July 2026, which replaced the 2021
+NTIA elements), the **G7 SBOM for AI minimum elements** (May 2026), **CERT-In's
+AIBOM table**, and **BSI TR-03183-2** — the only published technical specification of what a Cyber
 Resilience Act SBOM must contain, since the Article 13(24) implementing act has
 not been adopted and no harmonised standard has been cited in the Official
 Journal. It says which rows it fills. It distinguishes an element this artifact happens
@@ -151,6 +155,39 @@ nothing else on the host. A `GOOS=js` module is also built, but it is the same
 command-line program: running it in a browser needs a filesystem shim, which is
 not shipped here.
 
+## In a GitHub workflow
+
+The action downloads a released binary, verifies its Sigstore signature against
+the checksum manifest before running it, and uploads the SARIF to code scanning
+so findings land as annotations on the pull request.
+
+```yaml
+permissions:
+  contents: read
+  security-events: write   # required to upload SARIF
+
+steps:
+  - uses: actions/checkout@v7
+  - uses: DAVANO-INNOVATION-LAB/tessera@v1
+    with:
+      path: ./models/llama3
+      fail-on: critical            # or high, medium, low, never
+      cyclonedx-version: "1.7"
+```
+
+Every published release is covered by a `checksums.txt` signed with Sigstore.
+Signing is keyless, so there is no key to distribute — the certificate names the
+repository and the workflow that built the binary:
+
+```bash
+cosign verify-blob \
+  --certificate checksums.txt.pem \
+  --signature checksums.txt.sig \
+  --certificate-identity-regexp '^https://github.com/DAVANO-INNOVATION-LAB/tessera/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+```
+
 ## Install
 
 ```bash
@@ -164,8 +201,14 @@ make all     # CLI + FFI library + WebAssembly
 # Human-readable read of a model's metadata and findings
 tessera inspect model.gguf
 
-# Emit a CycloneDX 1.6 ML-BOM to stdout
+# Emit a CycloneDX ML-BOM to stdout (1.6 by default)
 tessera bom model.gguf --format cyclonedx
+
+# ...or at CycloneDX 1.7
+tessera bom model.gguf --format cyclonedx --cyclonedx-version 1.7
+
+# Emit a SARIF report for code scanning
+tessera bom model.gguf --format sarif
 
 # Emit both standards into a directory
 tessera bom ./model-dir --out ./boms
@@ -177,7 +220,10 @@ tessera bom model.onnx --format spdx --reproducible
 tessera verify model.cdx.json ./model-dir
 
 # Report coverage against a published minimum-elements standard
-tessera coverage ./model-dir --standard g7      # or cert-in, or bsi
+tessera coverage ./model-dir --standard cisa-2026   # or g7, cert-in, bsi
+
+# Gate a pipeline on severity (High and Medium share an exit code otherwise)
+tessera bom model.gguf --format sarif --fail-on high
 ```
 
 `bom` accepts a single file or a directory containing one model (it resolves
@@ -312,7 +358,7 @@ internal/model         the Artifact IR — the join everything reads/writes
 internal/parse         gguf / safetensors / onnx parsers + protobuf wire reader
 internal/spdxlicense   raw license string → SPDX identifier
 internal/scan          IR → security findings
-internal/emit          CycloneDX 1.6 and SPDX 3.0.1 emitters
+internal/emit          CycloneDX, SPDX 3.0.1 and SARIF emitters
 ```
 
 Parsers and emitters stay in `internal/`, so they are free to change without

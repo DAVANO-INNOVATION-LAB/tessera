@@ -1,0 +1,129 @@
+name: release
+
+# Tagged releases publish the four distribution shapes plus a signed checksum
+# file. The signature is the point: a bill-of-materials tool that ships
+# unverifiable binaries is asking users to trust exactly the link in the chain
+# it exists to check.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and sign without publishing a release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.25"
+
+jobs:
+  release:
+    name: build, sign, publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
+      id-token: write # keyless signing via the OIDC token
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with: { go-version: "${{ env.GO_VERSION }}" }
+
+      - name: Resolve the version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.0-dev+${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "resolved version: $version"
+
+      # The suite runs again here rather than trusting the CI run on the same
+      # commit. A release is the one artifact that cannot be quietly amended
+      # after the fact, so it re-earns the guarantees instead of inheriting them.
+      - name: Test
+        run: make test
+
+      - name: Cross-compile the CLI
+        run: make release VERSION=${{ steps.version.outputs.version }}
+
+      - name: Build the shared library and WebAssembly modules
+        run: |
+          make ffi wasm VERSION=${{ steps.version.outputs.version }}
+          cp bin/libtessera.so bin/libtessera.h bin/tessera.wasm bin/tessera-js.wasm dist/
+
+      # Checksums are computed over everything that ships, and the signature
+      # below covers this one file. Signing the manifest rather than each
+      # binary keeps verification to two commands regardless of how many
+      # shapes are published.
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum * > checksums.txt
+          echo "--- checksums.txt ---"
+          cat checksums.txt
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign the checksums
+        run: |
+          cosign sign-blob --yes \
+            --output-signature dist/checksums.txt.sig \
+            --output-certificate dist/checksums.txt.pem \
+            dist/checksums.txt
+
+      # Verifying here rather than trusting the signing step to have worked. A
+      # release that silently produced no signature looks identical to one that
+      # did, until somebody downstream tries to verify it.
+      - name: Verify the signature we just made
+        run: |
+          cosign verify-blob \
+            --certificate dist/checksums.txt.pem \
+            --signature dist/checksums.txt.sig \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            dist/checksums.txt
+          echo "signature verified"
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --notes-file - <<'NOTES'
+          ## Verifying this release
+
+          Every published file is covered by `checksums.txt`, which is signed
+          with Sigstore. Signing is keyless, so there is no key to trust — the
+          certificate names the repository and the workflow that built it.
+
+          ```bash
+          cosign verify-blob \
+            --certificate checksums.txt.pem \
+            --signature checksums.txt.sig \
+            --certificate-identity-regexp '^https://github.com/DAVANO-INNOVATION-LAB/tessera/' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            checksums.txt
+
+          sha256sum --check --ignore-missing checksums.txt
+          ```
+          NOTES
+          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+
+      - name: Upload build output (dry run)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

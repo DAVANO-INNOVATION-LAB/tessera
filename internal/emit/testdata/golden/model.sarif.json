@@ -1,0 +1,116 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "tessera",
+          "version": "golden",
+          "organization": "Davano Innovation Lab",
+          "informationUri": "https://github.com/DAVANO-INNOVATION-LAB/tessera",
+          "rules": [
+            {
+              "id": "TESS-GGUF-010",
+              "name": "TessGguf010",
+              "shortDescription": {
+                "text": "Executable chat template"
+              },
+              "fullDescription": {
+                "text": "jinja control logic"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "tessera",
+                  "model"
+                ],
+                "security-severity": "7.5"
+              }
+            },
+            {
+              "id": "TESS-LIC-001",
+              "name": "TessLic001",
+              "shortDescription": {
+                "text": "No license disclosed"
+              },
+              "fullDescription": {
+                "text": "No license disclosed"
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "tags": [
+                  "tessera",
+                  "license"
+                ],
+                "security-severity": "2.0"
+              }
+            }
+          ]
+        }
+      },
+      "artifacts": [
+        {
+          "location": {
+            "uri": "model.gguf"
+          },
+          "hashes": {
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sha384": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+            "sha512": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+        }
+      ],
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "endTimeUtc": "2026-08-18T12:00:00Z"
+        }
+      ],
+      "results": [
+        {
+          "ruleId": "TESS-GGUF-010",
+          "level": "error",
+          "message": {
+            "text": "jinja control logic"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "model.gguf"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "tesseraFindingV1": "aaaaaaaaaaaaaaaa:TESS-GGUF-010"
+          }
+        },
+        {
+          "ruleId": "TESS-LIC-001",
+          "level": "note",
+          "message": {
+            "text": "No license disclosed"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "model.gguf"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "tesseraFindingV1": "aaaaaaaaaaaaaaaa:TESS-LIC-001"
+          }
+        }
+      ]
+    }
+  ]
+}

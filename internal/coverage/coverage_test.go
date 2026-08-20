@@ -171,3 +171,130 @@ func elementNamed(t *testing.T, r *Report, name string) Element {
 	t.Fatalf("no element named %q", name)
 	return Element{}
 }
+
+// The element list is transcribed from Appendix A, Table 1 of the published
+// document. Pinning it here means a future edit that drops or renames a row
+// fails rather than quietly reporting coverage of a table that no longer
+// matches the standard a buyer is holding it against.
+func TestCISA2026MatchesThePublishedTable(t *testing.T) {
+	dataFields := []string{
+		"Component Dependency Relationship",
+		"Component Hash Algorithm",
+		"Component Hash Value",
+		"Component Identifiers",
+		"Component License",
+		"Component Name",
+		"Component Producer",
+		"Component Version",
+		"SBOM Author",
+		"SBOM Author Signature",
+		"SBOM Data Format Name",
+		"SBOM Data Format Version",
+		"SBOM Generation Context",
+		"SBOM Timestamp",
+		"SBOM Tool Name",
+		"SBOM Tool Version",
+		"SBOM Version",
+	}
+	practices := []string{
+		"Accommodation of Updates to SBOM Data",
+		"Coverage",
+		"Distribution and Delivery",
+		"Explicitly Identifying Unknown Information",
+		"Frequency",
+		"Machine-Processable Data",
+	}
+
+	rep, err := Assess(CISA2026, bsiArtifact())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := map[string]string{}
+	for _, e := range rep.Elements {
+		got[e.Name] = e.Cluster
+	}
+	for _, name := range dataFields {
+		cluster, ok := got[name]
+		if !ok {
+			t.Errorf("data field %q is missing from the report", name)
+			continue
+		}
+		if cluster != "Data Fields" {
+			t.Errorf("%q is in cluster %q, want \"Data Fields\"", name, cluster)
+		}
+	}
+	for _, name := range practices {
+		cluster, ok := got[name]
+		if !ok {
+			t.Errorf("practice %q is missing from the report", name)
+			continue
+		}
+		if cluster != "Practices and Processes" {
+			t.Errorf("%q is in cluster %q, want \"Practices and Processes\"", name, cluster)
+		}
+	}
+	if want := len(dataFields) + len(practices); len(rep.Elements) != want {
+		t.Errorf("report has %d elements, want %d; the published table has exactly that many",
+			len(rep.Elements), want)
+	}
+	if rep.Populated+rep.Absent+rep.OutOfScope != len(rep.Elements) {
+		t.Error("the status counts do not add up to the number of elements")
+	}
+}
+
+// The hash pair is the reason this standard matters here: 2026 added both
+// Component Hash Value and Component Hash Algorithm as minimum elements, and
+// both are things measured from the bytes rather than declared anywhere.
+func TestCISA2026PopulatesTheHashPair(t *testing.T) {
+	rep, err := Assess(CISA2026, bsiArtifact())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"Component Hash Value", "Component Hash Algorithm"} {
+		for _, e := range rep.Elements {
+			if e.Name != name {
+				continue
+			}
+			if e.Status != Populated {
+				t.Errorf("%q is %s, want populated: it is computed from the file", name, e.Status)
+			}
+			if e.Value == "" {
+				t.Errorf("%q is populated but carries no value", name)
+			}
+		}
+	}
+}
+
+// Out-of-scope rows must say why. An unexplained gap reads as an omission.
+func TestCISA2026OutOfScopeElementsCarryAReason(t *testing.T) {
+	rep, err := Assess(CISA2026, bsiArtifact())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, e := range rep.Elements {
+		if e.Status != OutOfScope {
+			continue
+		}
+		seen++
+		if e.Note == "" {
+			t.Errorf("%q is out of scope with no reason attached", e.Name)
+		}
+	}
+	if seen == 0 {
+		t.Error("no out-of-scope elements; a signature and the organizational practices cannot come from a parse")
+	}
+}
+
+func TestCISA2026IsRegistered(t *testing.T) {
+	found := false
+	for _, s := range Standards() {
+		if s == CISA2026 {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("cisa-2026 is not in Standards(); the CLI and library would not offer it")
+	}
+}

@@ -105,3 +105,58 @@ func integrityStatement(f model.FileComponent) string {
 	}
 	return "per-file digests, recomputable"
 }
+
+// componentIdentifiers renders the identifiers that can serve as a look-up key
+// for this component: the package URL when one can be built, plus any handle
+// the artifact disclosed about itself.
+func componentIdentifiers(a *model.Artifact) string {
+	var parts []string
+	if id := firstOf(a.Identity.UUID, a.Identity.RepoURL, a.Identity.URL, a.Identity.DOI); id != "" {
+		parts = append(parts, id)
+	}
+	if sha := a.PrimaryFile().SHA256; sha != "" {
+		parts = append(parts, "sha256:"+sha)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// componentRelationships describes how the physical files relate to the model.
+// A single-file model has no subcomponents, which is a fact about the artifact
+// rather than a missing element, so it is stated rather than left blank.
+func componentRelationships(a *model.Artifact) string {
+	shards, external := 0, 0
+	for _, f := range a.Files {
+		switch f.Role {
+		case model.RoleShard:
+			shards++
+		case model.RoleExternalData:
+			external++
+		}
+	}
+	switch {
+	case shards > 0 && external > 0:
+		return fmt.Sprintf("model contains %d shard(s) and %d external data file(s)", shards, external)
+	case shards > 0:
+		return fmt.Sprintf("model contains %d shard(s)", shards)
+	case external > 0:
+		return fmt.Sprintf("model contains %d external data file(s)", external)
+	case len(a.Files) > 0:
+		return "single-file model; no subcomponents"
+	}
+	return ""
+}
+
+// componentCoverage answers the standard's depth question: every physical file
+// the model is made of is enumerated, not just the one that was opened.
+func componentCoverage(a *model.Artifact) string {
+	if len(a.Files) == 0 {
+		return ""
+	}
+	hashed := 0
+	for _, f := range a.Files {
+		if f.SHA256 != "" {
+			hashed++
+		}
+	}
+	return fmt.Sprintf("%d of %d component file(s) enumerated and hashed", hashed, len(a.Files))
+}

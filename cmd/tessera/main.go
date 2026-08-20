@@ -1,5 +1,5 @@
 // Command tessera reads a local model file — GGUF, safetensors, or ONNX — and
-// emits a normalized AI bill of materials in CycloneDX 1.6 and SPDX 3.0.1 from
+// emits a normalized AI bill of materials in CycloneDX (1.6 or 1.7) and SPDX 3.0.1
 // a single parse, with security findings attached. It reads only headers and
 // metadata: it never loads a framework, never resolves an ONNX operator, never
 // fetches external data, and never touches the network. That makes it safe to
@@ -75,14 +75,15 @@ func usage() {
 	fmt.Fprint(os.Stderr, `tessera - offline AIBOM generator for model files
 
 Usage:
-  tessera bom      <path> [--format cyclonedx,spdx] [--out DIR] [--reproducible]
+  tessera bom      <path> [--format cyclonedx,spdx,sarif] [--cyclonedx-version 1.6|1.7]
+                   [--out DIR] [--reproducible]
   tessera inspect  <path> [--json]
   tessera verify   <bom.json> <path> [--json]
-  tessera coverage <path> [--standard g7|cert-in|bsi] [--json]
+  tessera coverage <path> [--standard g7|cert-in|bsi|cisa-2026] [--json]
   tessera version
 
 tessera reads a GGUF, safetensors, or ONNX file (or a directory containing one)
-and emits an AI bill of materials in CycloneDX 1.6 and SPDX 3.0.1, plus the
+and emits an AI bill of materials in CycloneDX (1.6 or 1.7) and SPDX 3.0.1, plus the
 security findings the metadata discloses. It reads only headers and metadata and
 never touches the network, so it is safe against an untrusted artifact offline.
 
@@ -93,7 +94,12 @@ never touches the network, so it is safe against an untrusted artifact offline.
             artifact can actually supply, and which it cannot
 
 bom flags:
-  --format   comma list of cyclonedx,spdx (default both; a single format may go
+  --cyclonedx-version  1.6 (default) or 1.7; the document is identical either
+             way, only the declared specVersion differs
+  --fail-on  exit non-zero only at or above this severity (critical, high,
+             medium, low, never). Unset keeps the exit codes below as they are.
+  --format   comma list of cyclonedx,spdx,sarif (default cyclonedx,spdx; a
+             single format may go
              to stdout, both require --out)
   --out DIR  write <name>.cdx.json and <name>.spdx.json into DIR; "-" means stdout
   --reproducible  timestamp the BOM from the model file's mtime, so identical
@@ -106,11 +112,13 @@ Exit codes: 0 clean, 2 findings up to High, 3 a Critical finding,
 
 func runBOM(args []string) int {
 	fs := flag.NewFlagSet("bom", flag.ContinueOnError)
-	format := fs.String("format", "cyclonedx,spdx", "comma list: cyclonedx,spdx")
+	format := fs.String("format", "cyclonedx,spdx", "comma list: cyclonedx,spdx,sarif")
+	cdxVersion := fs.String("cyclonedx-version", tessera.CycloneDX16, "CycloneDX spec version: 1.6 or 1.7")
 	out := fs.String("out", "", "output directory (\"-\" or empty = stdout)")
 	reproducible := fs.Bool("reproducible", false, "timestamp from the model file mtime for byte-identical output")
+	failOn := fs.String("fail-on", "", "exit non-zero only at or above this severity: critical, high, medium, low, never")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: tessera bom <path> [--format cyclonedx,spdx] [--out DIR] [--reproducible]")
+		fmt.Fprintln(os.Stderr, "Usage: tessera bom <path> [--format cyclonedx,spdx,sarif] [--cyclonedx-version 1.6|1.7] [--out DIR] [--reproducible] [--fail-on SEVERITY]")
 		fs.PrintDefaults()
 	}
 	path, err := parseWithPositional(fs, args)
@@ -146,7 +154,7 @@ func runBOM(args []string) int {
 
 	slug := strutil.Slug(artifact.Identity.Name, "model")
 	for _, fmtName := range formats {
-		data, err := render(fmtName, artifact, generatedAt)
+		data, err := render(fmtName, artifact, generatedAt, *cdxVersion)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "tessera bom: %v\n", err)
 			return exitError
@@ -170,7 +178,54 @@ func runBOM(args []string) int {
 
 	// Report findings to stderr so stdout stays a clean BOM.
 	reportFindings(artifact)
-	return exitCode(artifact)
+
+	gated, err := gateExit(artifact, *failOn)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tessera bom: %v\n", err)
+		return exitUsage
+	}
+	return gated
+}
+
+// gateExit applies a --fail-on threshold to the exit code.
+//
+// The bare exit code cannot express this on its own: High and Medium share
+// code 2, so a caller that gates on the number alone cannot ask to fail on High
+// without also failing on Medium. The severity is known here, so the decision
+// is made here rather than approximated by whoever reads the code.
+//
+// An unset threshold keeps the historical behaviour exactly. When one is set,
+// a result below it exits clean, and a result at or above it keeps the
+// informative code (2 or 3) rather than collapsing to a generic failure.
+func gateExit(a *tessera.Artifact, failOn string) (int, error) {
+	code := exitCode(a)
+	if failOn == "" {
+		return code, nil
+	}
+
+	var threshold int
+	switch strings.ToLower(failOn) {
+	case "critical":
+		threshold = tessera.Severity(tessera.SeverityCritical)
+	case "high":
+		threshold = tessera.Severity(tessera.SeverityHigh)
+	case "medium":
+		threshold = tessera.Severity(tessera.SeverityMedium)
+	case "low":
+		threshold = tessera.Severity(tessera.SeverityLow)
+	case "never":
+		return exitClean, nil
+	default:
+		return 0, fmt.Errorf(
+			"unknown --fail-on %q (want critical, high, medium, low or never)", failOn)
+	}
+
+	// Severity ranks ascend as severity falls, so "at or above the threshold"
+	// is a <= comparison on the rank.
+	if tessera.Severity(tessera.Worst(a.Findings)) <= threshold {
+		return code, nil
+	}
+	return exitClean, nil
 }
 
 // parseWithPositional parses flags that may appear before or after the single
@@ -195,19 +250,24 @@ func parseWithPositional(fs *flag.FlagSet, args []string) (string, error) {
 	return path, nil
 }
 
-func render(name string, a *tessera.Artifact, at time.Time) ([]byte, error) {
+func render(name string, a *tessera.Artifact, at time.Time, cdxVersion string) ([]byte, error) {
 	switch name {
 	case "cyclonedx":
-		return tessera.CycloneDX(a, at)
+		return tessera.CycloneDXVersion(a, at, cdxVersion)
 	case "spdx":
 		return tessera.SPDX(a, at)
+	case "sarif":
+		return tessera.SARIF(a, at)
 	}
 	return nil, fmt.Errorf("unknown format %q", name)
 }
 
 func extFor(name string) string {
-	if name == "spdx" {
+	switch name {
+	case "spdx":
 		return ".spdx.json"
+	case "sarif":
+		return ".sarif.json"
 	}
 	return ".cdx.json"
 }
@@ -220,8 +280,8 @@ func parseFormats(s string) ([]string, error) {
 		if f == "" {
 			continue
 		}
-		if f != "cyclonedx" && f != "spdx" {
-			return nil, fmt.Errorf("unknown format %q (want cyclonedx or spdx)", f)
+		if f != "cyclonedx" && f != "spdx" && f != "sarif" {
+			return nil, fmt.Errorf("unknown format %q (want cyclonedx, spdx or sarif)", f)
 		}
 		if !seen[f] {
 			seen[f] = true
@@ -337,9 +397,6 @@ func printHuman(a *tessera.Artifact) {
 }
 
 func reportFindings(a *tessera.Artifact) {
-	if len(a.Findings) == 0 {
-		return
-	}
 	findings := append([]tessera.Finding(nil), a.Findings...)
 	sort.SliceStable(findings, func(i, j int) bool {
 		return tessera.Severity(findings[i].Severity) < tessera.Severity(findings[j].Severity)
@@ -347,6 +404,25 @@ func reportFindings(a *tessera.Artifact) {
 	for _, f := range findings {
 		fmt.Fprintf(os.Stderr, "finding [%s] %s: %s\n", f.Severity, f.ID, f.Title)
 	}
+
+	// A closing summary, always printed, in a shape a script can read.
+	//
+	// The exit code stopped being sufficient for this once --fail-on existed: a
+	// gated run exits clean while still having found something, so a caller
+	// reading only the code cannot tell "nothing was found" from "something was
+	// found and you asked me not to fail on it". This line always states what
+	// was actually found, independent of what the gate decided to do about it.
+	fmt.Fprintf(os.Stderr, "worst severity: %s (findings: %d)\n",
+		severityOrNone(tessera.Worst(a.Findings)), len(a.Findings))
+}
+
+// severityOrNone renders the absent severity as a word rather than an empty string, so
+// the summary line always has a value in the same position.
+func severityOrNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
 }
 
 func exitCode(a *tessera.Artifact) int {
@@ -456,7 +532,7 @@ func runCoverage(args []string) int {
 	jsonOut := fs.Bool("json", false, "emit the report as JSON")
 	path, err := parseWithPositional(fs, args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Usage: tessera coverage <path> [--standard g7|cert-in|bsi] [--json]")
+		fmt.Fprintln(os.Stderr, "Usage: tessera coverage <path> [--standard g7|cert-in|bsi|cisa-2026] [--json]")
 		return exitUsage
 	}
 
@@ -507,8 +583,15 @@ func printCoverage(r *tessera.CoverageReport, path string) {
 	fmt.Printf("\n  %d of %d elements populated; %d absent from this artifact, "+
 		"%d not derivable from any model file.\n",
 		r.Populated, total, r.Absent, r.OutOfScope)
-	fmt.Println("  Elements marked n/a need training data, evaluation results or")
-	fmt.Println("  deployment context, none of which a static parse can see.")
+	// Each n/a element already carries the specific reason it cannot be
+	// derived, and those reasons differ by standard — training data and
+	// evaluation results for the AI lists, signing and organizational process
+	// for the CISA one. Pointing at the per-element notes beats restating one
+	// standard's rationale over all of them.
+	if r.OutOfScope > 0 {
+		fmt.Println("  Elements marked n/a carry the reason they cannot be derived from a")
+		fmt.Println("  model file; a static parse is the wrong instrument for them.")
+	}
 }
 
 func truncate(s string, n int) string {

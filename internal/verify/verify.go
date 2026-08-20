@@ -1,11 +1,14 @@
 // Package verify checks a bill of materials against the artifact it describes.
 //
-// Generating a document is the easy half. The half nobody does is asking, later
-// and somewhere else, whether the document still describes these bytes — which
-// is the question that matters at the moment of use rather than the moment of
+// Generating a document is the easy half. The harder half is asking, later and
+// somewhere else, whether the document still describes these bytes — which is
+// the question that matters at the moment of use rather than the moment of
 // build.
 //
-// Several authorities ask for exactly this and none of them ship it. Korea's
+// Several authorities ask for exactly this. Tools that re-check a recorded hash
+// exist; what is scarce is re-deriving the non-hash claims — architecture,
+// precision, parameter count — and reporting pass or fail per claim, which is
+// what this package does. Korea's
 // Framework Act Art. 36(1)(3) requires inspecting "the currency and accuracy" of
 // safety documentation. Canada's ITSP.80.101 says to verify integrity before a
 // model is loaded. Singapore's CSA guidance requires authenticating models as

@@ -216,3 +216,163 @@ func TestGoldenEmptyArtifact(t *testing.T) {
 	}
 	checkGolden(t, "empty.spdx.json", spdx)
 }
+
+// The 1.7 document is the 1.6 document with a different declared specVersion.
+// That is the whole claim, so the test asserts it directly: any future 1.7-only
+// field would break this and force a deliberate decision rather than silently
+// diverging the two outputs.
+func TestGoldenCycloneDX17(t *testing.T) {
+	got, err := CycloneDXVersion(goldenArtifact(), goldenTime, goldenTool, CycloneDX17)
+	if err != nil {
+		t.Fatalf("CycloneDXVersion: %v", err)
+	}
+	if !json.Valid(got) {
+		t.Fatal("output is not valid JSON")
+	}
+	checkGolden(t, "model.cdx17.json", got)
+}
+
+func TestCycloneDXVersionsDifferOnlyInSpecVersion(t *testing.T) {
+	v16, err := CycloneDXVersion(goldenArtifact(), goldenTime, goldenTool, CycloneDX16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v17, err := CycloneDXVersion(goldenArtifact(), goldenTime, goldenTool, CycloneDX17)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized := bytes.Replace(v17, []byte(`"specVersion": "1.7"`), []byte(`"specVersion": "1.6"`), 1)
+	if !bytes.Equal(v16, normalized) {
+		t.Errorf("1.6 and 1.7 differ beyond specVersion.\n%s", firstDifference(v16, normalized))
+	}
+}
+
+func TestCycloneDXRejectsUnknownVersion(t *testing.T) {
+	for _, v := range []string{"", "1.5", "1.8", "2.0", "v1.7", "1.7.1"} {
+		if _, err := CycloneDXVersion(goldenArtifact(), goldenTime, goldenTool, v); err == nil {
+			t.Errorf("version %q was accepted; an unknown version must be an error, "+
+				"not a silent fallback to the default", v)
+		}
+	}
+}
+
+// The default has to stay 1.6 until it is changed deliberately: it is what
+// downstream consumers and the embedding scanner already read.
+func TestCycloneDXDefaultIs16(t *testing.T) {
+	got, err := CycloneDX(goldenArtifact(), goldenTime, goldenTool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(got, []byte(`"specVersion": "1.6"`)) {
+		t.Error("the default CycloneDX output no longer declares specVersion 1.6")
+	}
+}
+
+func TestGoldenSARIF(t *testing.T) {
+	got, err := SARIF(goldenArtifact(), goldenTime, goldenTool)
+	if err != nil {
+		t.Fatalf("SARIF: %v", err)
+	}
+	if !json.Valid(got) {
+		t.Fatal("output is not valid JSON")
+	}
+	checkGolden(t, "model.sarif.json", got)
+}
+
+// A clean model must still produce a usable log. An empty or absent file reads
+// downstream as a failed scan step rather than as "nothing was wrong".
+func TestSARIFCleanArtifactIsValidEmptyRun(t *testing.T) {
+	a := goldenArtifact()
+	a.Findings = nil
+	got, err := SARIF(a, goldenTime, goldenTool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var log struct {
+		Version string `json:"version"`
+		Runs    []struct {
+			Results   []any `json:"results"`
+			Artifacts []any `json:"artifacts"`
+			Tool      struct {
+				Driver struct {
+					Name string `json:"name"`
+				} `json:"driver"`
+			} `json:"tool"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(got, &log); err != nil {
+		t.Fatal(err)
+	}
+	if log.Version != "2.1.0" {
+		t.Errorf("version = %q, want 2.1.0", log.Version)
+	}
+	if len(log.Runs) != 1 {
+		t.Fatalf("runs = %d, want 1", len(log.Runs))
+	}
+	if log.Runs[0].Results == nil {
+		t.Error("results is null; it must serialize as [] so consumers read a clean scan, not a malformed log")
+	}
+	if len(log.Runs[0].Results) != 0 {
+		t.Errorf("results = %d, want 0", len(log.Runs[0].Results))
+	}
+	if len(log.Runs[0].Artifacts) == 0 {
+		t.Error("a clean run must still record which artifact it examined")
+	}
+	if log.Runs[0].Tool.Driver.Name == "" {
+		t.Error("tool.driver.name is required by the SARIF schema")
+	}
+}
+
+// Every result must resolve to a rule descriptor. Consumers drop results whose
+// ruleId has no matching rule, which would silently lose findings.
+func TestSARIFEveryResultHasARule(t *testing.T) {
+	got, err := SARIF(goldenArtifact(), goldenTime, goldenTool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var log struct {
+		Runs []struct {
+			Tool struct {
+				Driver struct {
+					Rules []struct {
+						ID         string `json:"id"`
+						Properties struct {
+							SecuritySeverity string `json:"security-severity"`
+						} `json:"properties"`
+					} `json:"rules"`
+				} `json:"driver"`
+			} `json:"tool"`
+			Results []struct {
+				RuleID              string            `json:"ruleId"`
+				Level               string            `json:"level"`
+				PartialFingerprints map[string]string `json:"partialFingerprints"`
+			} `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(got, &log); err != nil {
+		t.Fatal(err)
+	}
+	run := log.Runs[0]
+	rules := map[string]bool{}
+	for _, r := range run.Tool.Driver.Rules {
+		rules[r.ID] = true
+		if r.Properties.SecuritySeverity == "" {
+			t.Errorf("rule %s has no security-severity; GitHub renders it as an undifferentiated warning", r.ID)
+		}
+	}
+	if len(run.Results) == 0 {
+		t.Fatal("the golden artifact has findings; results must not be empty")
+	}
+	valid := map[string]bool{"error": true, "warning": true, "note": true, "none": true}
+	for _, res := range run.Results {
+		if !rules[res.RuleID] {
+			t.Errorf("result %s has no rule descriptor; consumers drop it", res.RuleID)
+		}
+		if !valid[res.Level] {
+			t.Errorf("result %s has level %q, which is not a SARIF level", res.RuleID, res.Level)
+		}
+		if res.PartialFingerprints["tesseraFindingV1"] == "" {
+			t.Errorf("result %s has no fingerprint; it will re-alert on every run", res.RuleID)
+		}
+	}
+}

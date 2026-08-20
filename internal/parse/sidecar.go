@@ -15,7 +15,7 @@ import (
 // Sidecar files are the other half of a model's story. The binary says what the
 // artifact is; config.json and the shard index say what its author claims it
 // is. Reading both is what makes it possible to notice when they disagree,
-// which is the one question no other tool in this space asks.
+// which is the comparison this package exists to make.
 //
 // Nothing read here is trusted. A declaration is recorded as a declaration —
 // never merged into the measured fields — so a stale or dishonest config can

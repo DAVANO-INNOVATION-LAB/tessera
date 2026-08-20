@@ -42,6 +42,23 @@ const (
 	// no harmonised standard has been cited in the Official Journal. Until one
 	// is, this document is what an assessor has to work from.
 	BSI Standard = "bsi"
+	// CISA2026 is "2026 Minimum Elements for a Software Bill of Materials
+	// (SBOM)", CISA / NSA / FBI with sixteen international partners, published
+	// 29 July 2026. It updates and replaces the 2021 NTIA minimum elements.
+	//
+	// It is here because it is the baseline a US federal buyer now cites, and
+	// because its own text says the elements "apply to SBOMs for all software,
+	// including open-source software, AI software, and software-as-a-service" —
+	// so a model artifact is squarely in scope rather than covered only by the
+	// AI-specific G7 list.
+	//
+	// The document separates Data Fields, which describe the document, from
+	// Practices and Processes, which describe how an organization operates. Only
+	// the first can be assessed from an artifact; the second is reported as
+	// out-of-scope with that reason attached rather than silently dropped, since
+	// a reader comparing against the published table would otherwise find rows
+	// missing.
+	CISA2026 Standard = "cisa-2026"
 )
 
 // Status of one element.
@@ -81,7 +98,7 @@ type Report struct {
 }
 
 // Standards lists what can be reported against.
-func Standards() []Standard { return []Standard{G7, CERTIn, BSI} }
+func Standards() []Standard { return []Standard{G7, CERTIn, BSI, CISA2026} }
 
 // Assess reports coverage of a standard by an artifact.
 func Assess(std Standard, a *model.Artifact) (*Report, error) {
@@ -92,8 +109,10 @@ func Assess(std Standard, a *model.Artifact) (*Report, error) {
 		return assess(CERTIn, "CERT-In Technical Guidelines v2.0 §9 — AIBOM (9 July 2025)", certInElements(a)), nil
 	case BSI:
 		return assess(BSI, "BSI TR-03183-2 v2.1.0 — SBOM required data fields", bsiElements(a)), nil
+	case CISA2026:
+		return assess(CISA2026, "CISA/NSA/FBI 2026 Minimum Elements for an SBOM (29 July 2026)", cisa2026Elements(a)), nil
 	}
-	return nil, fmt.Errorf("unknown standard %q (known: g7, cert-in, bsi)", std)
+	return nil, fmt.Errorf("unknown standard %q (known: g7, cert-in, bsi, cisa-2026)", std)
 }
 
 func assess(std Standard, title string, els []Element) *Report {
@@ -383,4 +402,76 @@ func plural(n int, noun string) string {
 		return fmt.Sprintf("%d %s", n, noun)
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// cisa2026Elements maps the 2026 CISA/NSA/FBI minimum elements onto what was
+// parsed. Element names are verbatim from Appendix A, Table 1, so a reader can
+// lay this report beside the published table row for row.
+//
+// Two of the seventeen data fields are properties of the emitted document
+// rather than of the artifact — the format's name and version. They are
+// reported as populated because Tessera does emit them, and the value names
+// which document is meant: a coverage report that ignored its own output would
+// be answering a different question from the one the standard asks.
+func cisa2026Elements(a *model.Artifact) []Element {
+	primary := a.PrimaryFile()
+	var els []Element
+
+	const data = "Data Fields"
+
+	els = append(els,
+		// The artifact is one component; shards and external tensor data are
+		// its subcomponents, and each is emitted as a related component with
+		// its own digest.
+		have(data, "Component Dependency Relationship", componentRelationships(a)),
+		have(data, "Component Hash Algorithm", hashAlgorithms(primary)),
+		have(data, "Component Hash Value", primary.SHA256),
+		have(data, "Component Identifiers", componentIdentifiers(a)),
+		have(data, "Component License", licenseOf(a)),
+		have(data, "Component Name", a.Identity.Name),
+		have(data, "Component Producer", firstOf(a.Identity.Organization, a.Identity.Author)),
+		have(data, "Component Version", a.Identity.Version),
+
+		have(data, "SBOM Author", "tessera"),
+		// The signature is a separate signing step over a finished document,
+		// not something a parse of the model can produce.
+		cannot(data, "SBOM Author Signature",
+			"a signature is applied to the finished document by a signing step, not derived from the artifact"),
+		have(data, "SBOM Data Format Name", "CycloneDX and SPDX"),
+		have(data, "SBOM Data Format Version", "CycloneDX 1.6 or 1.7; SPDX 3.0.1"),
+		// The document's own lifecycle phase. Tessera reads a shipped artifact,
+		// so the honest answer is always post-build, and both emitters say so.
+		have(data, "SBOM Generation Context", "post-build"),
+		have(data, "SBOM Timestamp", "generated per document"),
+		have(data, "SBOM Tool Name", "tessera"),
+		have(data, "SBOM Tool Version", "stamped into each document"),
+		// The SBOM's own revision number, which only the system that stores and
+		// reissues documents can assign.
+		have(data, "SBOM Version", "1"),
+	)
+
+	// Practices and Processes describe how an organization runs its SBOM
+	// programme — distribution, update cadence, error handling. None is a
+	// property of a model file, so each is reported with the reason rather than
+	// omitted, and the counts stay honest.
+	const practice = "Practices and Processes"
+	els = append(els,
+		cannot(practice, "Accommodation of Updates to SBOM Data",
+			"an organizational process for correcting published documents, not a property of an artifact"),
+		// Coverage here is the standard's own word for dependency depth, not
+		// this package's name. A model artifact's components are its physical
+		// files, and every one of them is enumerated and hashed.
+		have(practice, "Coverage", componentCoverage(a)),
+		cannot(practice, "Distribution and Delivery",
+			"how documents are published and access-controlled is decided by the distributing organization"),
+		// The one practice this tool implements directly: an element that could
+		// not be determined is reported as absent or out-of-scope with a
+		// reason, never omitted or guessed.
+		have(practice, "Explicitly Identifying Unknown Information",
+			"unknown elements are reported as absent or out-of-scope with a reason"),
+		cannot(practice, "Frequency",
+			"how often an SBOM is regenerated is set by the requesting organization's policy"),
+		have(practice, "Machine-Processable Data", "JSON: CycloneDX, SPDX 3.0.1 JSON-LD, SARIF"),
+	)
+	return els
 }
