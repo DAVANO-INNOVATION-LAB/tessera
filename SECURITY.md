@@ -32,9 +32,8 @@ This is a supply-chain and artifact tool. It reports what a model file discloses
 and how it can behave at load time. It does **not** evaluate model behaviour —
 data poisoning, backdoor triggers, jailbreak robustness — because those require
 training data and runtime observation that a static parse cannot see. Reports
-that a model behaves badly at inference are out of scope here.
+that a model behaves badly at inference belong with the model's publisher.
 
 ## Supported versions
 
-The most recent release is supported. This project has not reached 1.0; until
-then, fixes land on the latest version rather than being backported.
+Fixes land on the most recent release.

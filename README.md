@@ -267,10 +267,10 @@ the risk verdict cannot be separated in transit.
 ### Scope, stated honestly
 
 Tessera is a **supply-chain / artifact** tool: it reports what a file discloses
-and how a file can hurt you on load. It does **not** do behavioural evaluation —
-data poisoning, backdoor-trigger discovery, jailbreak robustness — because those
-need training data and runtime behaviour a static parse cannot see. That is a
-scope edge, not a silent gap.
+and how a file can hurt you on load. Behavioural evaluation — data poisoning,
+backdoor-trigger discovery, jailbreak robustness — is a separate discipline
+built on training data and runtime observation, and it produces its own
+evidence alongside this.
 
 ## Standards mapping
 
