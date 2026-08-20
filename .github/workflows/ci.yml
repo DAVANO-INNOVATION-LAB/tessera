@@ -25,8 +25,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
@@ -53,8 +53,8 @@ jobs:
     name: embedding guarantees
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version: "${{ env.GO_VERSION }}" }
       # These three are promises made to every program that imports this
       # library: no dependencies, no network, no output. Breaking one silently
@@ -66,8 +66,8 @@ jobs:
     name: fuzz parsers
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version: "${{ env.GO_VERSION }}" }
       # The parsers read attacker-controlled bytes, so a short campaign runs on
       # every change. Seed corpora live in testdata/fuzz and grow when a crash
@@ -83,8 +83,8 @@ jobs:
     name: static analysis
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version: "${{ env.GO_VERSION }}" }
       - name: staticcheck
         run: |
@@ -99,10 +99,10 @@ jobs:
     name: BOM schema conformance
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version: "${{ env.GO_VERSION }}" }
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: { python-version: "3.12" }
       # Validates emitted documents against the PUBLISHED CycloneDX and SPDX
       # schemas. This caught two defects that were valid JSON and silently
@@ -114,8 +114,8 @@ jobs:
     name: all distribution shapes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version: "${{ env.GO_VERSION }}" }
       - name: CLI, shared library, WebAssembly
         run: make all
