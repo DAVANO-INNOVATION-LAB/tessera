@@ -75,14 +75,22 @@ func usage() {
 	fmt.Fprint(os.Stderr, `tessera - offline AIBOM generator for model files
 
 Usage:
-  tessera bom <path> [--format cyclonedx,spdx] [--out DIR] [--reproducible]
-  tessera inspect <path>
+  tessera bom      <path> [--format cyclonedx,spdx] [--out DIR] [--reproducible]
+  tessera inspect  <path> [--json]
+  tessera verify   <bom.json> <path> [--json]
+  tessera coverage <path> [--standard g7|cert-in|bsi] [--json]
   tessera version
 
 tessera reads a GGUF, safetensors, or ONNX file (or a directory containing one)
 and emits an AI bill of materials in CycloneDX 1.6 and SPDX 3.0.1, plus the
 security findings the metadata discloses. It reads only headers and metadata and
 never touches the network, so it is safe against an untrusted artifact offline.
+
+  bom       write the bill of materials
+  inspect   read the metadata and findings without writing a document
+  verify    check an existing document against the bytes it claims to describe
+  coverage  report which elements of a published minimum-elements standard the
+            artifact can actually supply, and which it cannot
 
 bom flags:
   --format   comma list of cyclonedx,spdx (default both; a single format may go
