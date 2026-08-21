@@ -34,6 +34,16 @@ RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
 # not trust.
 FROM gcr.io/distroless/static-debian12:nonroot
 
+# The source label is what links the published package to this repository. A
+# GHCR package pushed without it is orphaned: it exists, but it is not attached
+# to the repo, does not inherit its visibility, and cannot be pulled by anyone
+# who was told to pull it. The failure looks like a permissions problem and is
+# not one.
+LABEL org.opencontainers.image.source="https://github.com/DAVANO-INNOVATION-LAB/tessera"
+LABEL org.opencontainers.image.description="Scan model artifacts and produce a provable AI bill of materials"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.title="Tessera"
+
 COPY --from=build /out/tessera         /usr/local/bin/tessera
 COPY --from=build /out/tessera-studio  /usr/local/bin/tessera-studio
 COPY --from=build /out/tessera-sign    /usr/local/bin/tessera-sign
