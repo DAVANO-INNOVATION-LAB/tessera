@@ -40,6 +40,10 @@ type Server struct {
 	Root    string
 	Version string
 
+	// Auth is how a request proves who it is. The zero value means none, which
+	// is only permitted on a loopback bind — see Auth.CheckBind.
+	Auth Auth
+
 	// slots limits concurrent analyses; created lazily on first use.
 	slotsOnce sync.Once
 	slots     chan struct{}
@@ -66,7 +70,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/analyze", s.handleAnalyze)
 	mux.HandleFunc("GET /api/bom", s.handleBOM)
 	mux.HandleFunc("GET /api/coverage", s.handleCoverage)
-	return s.checkHost(securityHeaders(mux))
+	mux.HandleFunc("GET /api/whoami", s.handleWhoAmI)
+
+	// The sign-in endpoints sit outside the authentication wrapper: requiring
+	// a session to reach the page that establishes one is a loop.
+	outer := http.NewServeMux()
+	outer.Handle("/auth/callback", http.HandlerFunc(s.handleCallback))
+	outer.Handle("/auth/logout", http.HandlerFunc(s.handleLogout))
+	outer.Handle("/", s.require(mux))
+
+	return s.checkHost(securityHeaders(outer))
 }
 
 // AllowedHosts, when non-empty, replaces the default loopback-only host check.
@@ -469,4 +482,28 @@ func sanitize(s string) string {
 		return "model"
 	}
 	return out
+}
+
+// handleWhoAmI lets the interface show who is signed in, and lets a script
+// check whether its token works without performing a scan to find out.
+func (s *Server) handleWhoAmI(w http.ResponseWriter, r *http.Request) {
+	out := map[string]any{
+		"authenticated": true,
+		"mode":          "none",
+	}
+	switch {
+	case s.Auth.OIDC != nil:
+		out["mode"] = "oidc"
+		if c, err := r.Cookie(sessionCookie); err == nil {
+			if v, ok := s.Auth.OIDC.sessions.Load(c.Value); ok {
+				sess := v.(session)
+				out["email"] = sess.Email
+				out["name"] = sess.Name
+				out["expires"] = sess.Expires.UTC().Format(time.RFC3339)
+			}
+		}
+	case s.Auth.Token != "":
+		out["mode"] = "token"
+	}
+	writeJSON(w, out)
 }

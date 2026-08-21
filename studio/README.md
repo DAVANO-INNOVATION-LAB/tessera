@@ -122,6 +122,66 @@ inherit an AWS SDK to do it. It was never meant to imply seven things to run.
 The Kubernetes operator is a separate image and a separate decision. Nobody
 should need a cluster to scan a model.
 
+## Authentication
+
+**A port reachable beyond this machine requires authentication.** The server
+refuses to start otherwise, or generates a token if one was not supplied —
+never both silently open and exposed.
+
+That distinction matters because the Host-header check is a DNS-rebinding
+guard, not an authentication boundary: `curl -H "Host: localhost"` satisfies it
+from anywhere on the network. On a loopback bind that is fine, since nothing off
+the machine can connect. On an exposed bind it is not.
+
+**Loopback stays frictionless.** `tessera-studio /models` on a laptop needs no
+configuration and no token, exactly as before.
+
+**An exposed bind generates a token** and prints a link, unless you supply one:
+
+```
+This port is reachable beyond this machine, so a token was generated.
+Open:  http://0.0.0.0:7777/?token=tss_…
+Or:    Authorization: Bearer tss_…
+```
+
+The token in the link is accepted once, exchanged for an HttpOnly cookie, and
+stripped from the URL — tokens in URLs survive in browser history, referrer
+headers and proxy logs.
+
+Supply your own with `--auth-token` or `TESSERA_AUTH_TOKEN`.
+
+### OIDC
+
+For anything shared, use an identity provider:
+
+```bash
+tessera-studio /models --addr 0.0.0.0:7777 \
+  --oidc-issuer https://login.example.com \
+  --oidc-client-id tessera \
+  --oidc-client-secret "$SECRET" \
+  --oidc-redirect-url https://tessera.example.com/auth/callback \
+  --oidc-allowed-domains example.com
+```
+
+Authorization code with PKCE. Discovery runs at startup, so a misconfigured
+issuer is a boot failure rather than a surprise for whoever signs in first. The
+issuer in the discovery document must match what was configured, which is how a
+redirect to somebody else's provider gets caught.
+
+`--oidc-allowed-emails` and `--oidc-allowed-domains` restrict who may sign in.
+Leaving both empty means anyone the provider authenticates — correct for a
+company issuer, wrong for a public one, and yours to decide rather than ours to
+guess.
+
+Bearer tokens keep working alongside OIDC so a pipeline does not need an
+interactive login.
+
+### Turning it off
+
+`--insecure-no-auth` permits an exposed bind with no authentication. It prints a
+warning on every start. It exists so the decision is deliberate rather than
+worked around by someone who does not know what it protects.
+
 ## Licence
 
 Apache-2.0.

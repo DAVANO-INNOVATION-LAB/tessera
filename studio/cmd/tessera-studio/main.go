@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -37,6 +38,20 @@ var version = "dev"
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "address to listen on (loopback by default)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+
+	authToken := flag.String("auth-token", os.Getenv("TESSERA_AUTH_TOKEN"),
+		"bearer token required on every request (or TESSERA_AUTH_TOKEN)")
+	insecure := flag.Bool("insecure-no-auth", false,
+		"allow a non-loopback bind with no authentication (say this deliberately)")
+	oidcIssuer := flag.String("oidc-issuer", os.Getenv("TESSERA_OIDC_ISSUER"), "OIDC provider base URL")
+	oidcClientID := flag.String("oidc-client-id", os.Getenv("TESSERA_OIDC_CLIENT_ID"), "OIDC client id")
+	oidcSecret := flag.String("oidc-client-secret", os.Getenv("TESSERA_OIDC_CLIENT_SECRET"), "OIDC client secret")
+	oidcRedirect := flag.String("oidc-redirect-url", os.Getenv("TESSERA_OIDC_REDIRECT_URL"),
+		"OIDC redirect URL, exactly as registered with the provider")
+	oidcEmails := flag.String("oidc-allowed-emails", os.Getenv("TESSERA_OIDC_ALLOWED_EMAILS"),
+		"comma list of permitted email addresses")
+	oidcDomains := flag.String("oidc-allowed-domains", os.Getenv("TESSERA_OIDC_ALLOWED_DOMAINS"),
+		"comma list of permitted email domains")
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, `tessera-studio - local interface for model bills of materials
 
@@ -83,7 +98,52 @@ on loopback unless told otherwise.
 		os.Exit(1)
 	}
 
-	srv := &web.Server{Root: root, Version: version}
+	auth := web.Auth{Token: *authToken, InsecureNoAuth: *insecure}
+	var generated string
+	if *oidcIssuer != "" {
+		auth.OIDC = &web.OIDCConfig{
+			Issuer: *oidcIssuer, ClientID: *oidcClientID,
+			ClientSecret: *oidcSecret, RedirectURL: *oidcRedirect,
+			AllowedEmails:  splitList(*oidcEmails),
+			AllowedDomains: splitList(*oidcDomains),
+		}
+		// Discovery happens now so a bad issuer is a boot failure rather than a
+		// surprise for whoever tries to sign in first.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := auth.OIDC.Discover(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "tessera-studio: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// A non-loopback bind with nothing configured gets a generated token rather
+	// than a refusal. Refusing would be safe and useless: the container binds
+	// every interface by definition, so the documented `docker run` would fail
+	// for everyone and the first thing anybody reached for would be the flag
+	// that turns the protection off.
+	//
+	// Generating one is the same trade Jupyter makes. It is secure by default,
+	// needs no configuration, and the operator sees the token because it is the
+	// only way in. Whoever wants no authentication still has to say so.
+	if !auth.Enabled() && !auth.InsecureNoAuth && web.IsExposedBind(*addr) {
+		tok, err := web.GenerateToken()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tessera-studio: could not generate a token: %v\n", err)
+			os.Exit(1)
+		}
+		auth.Token = tok
+		generated = tok
+	}
+
+	// Belt and braces: if anything above failed to produce a credential for an
+	// exposed bind, refuse rather than serve.
+	if err := auth.CheckBind(*addr); err != nil {
+		fmt.Fprintf(os.Stderr, "tessera-studio: %v\n", err)
+		os.Exit(1)
+	}
+
+	srv := &web.Server{Root: root, Version: version, Auth: auth}
 	httpSrv := &http.Server{
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -96,6 +156,23 @@ on loopback unless told otherwise.
 	}
 
 	fmt.Printf("tessera-studio %s\n  serving %s\n  http://%s\n", version, root, ln.Addr())
+
+	// How to get in, printed once, where the operator is already looking.
+	switch {
+	case generated != "":
+		fmt.Printf("\n  This port is reachable beyond this machine, so a token was generated.\n"+
+			"  Open:  http://%s/?token=%s\n"+
+			"  Or:    Authorization: Bearer %s\n\n"+
+			"  Set --auth-token or TESSERA_AUTH_TOKEN to choose your own.\n",
+			ln.Addr(), generated, generated)
+	case auth.OIDC != nil:
+		fmt.Printf("  sign-in: OIDC via %s\n", auth.OIDC.Issuer)
+	case auth.Token != "":
+		fmt.Printf("  auth:    bearer token (fingerprint %s)\n", web.Fingerprint(auth.Token))
+	case auth.InsecureNoAuth && web.IsExposedBind(*addr):
+		fmt.Printf("\n  WARNING: serving without authentication on a port reachable beyond\n" +
+			"  this machine. Anything that can reach it can read every model here.\n\n")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -120,4 +197,16 @@ on loopback unless told otherwise.
 		os.Exit(1)
 	}
 	<-shutdownDone
+}
+
+// splitList parses a comma-separated flag, dropping blanks so a trailing comma
+// does not silently create an entry that matches nothing.
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
