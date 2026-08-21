@@ -8,3 +8,10 @@ internal/emit/testdata/golden/*.json -text
 testdata/*.gguf  binary
 testdata/*.onnx  binary
 testdata/*.safetensors binary
+
+# Inspector fixtures are hostile binaries by design — pickles carrying real
+# opcode sequences. Line-ending translation on a Windows checkout corrupts them
+# into something the parser no longer recognises, so the detection tests fail
+# there and only there, with output that looks like a parser bug rather than a
+# checkout one.
+internal/inspect/testdata/** binary

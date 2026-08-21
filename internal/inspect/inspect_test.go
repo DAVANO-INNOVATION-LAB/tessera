@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -274,6 +275,12 @@ func TestDetectsSuspiciousONNXOperator(t *testing.T) {
 }
 
 func TestReportsExecutableBit(t *testing.T) {
+	// Windows has no executable bit: os.Chmod succeeds and changes nothing, so
+	// the check has nothing to find. Skipped rather than weakened, because the
+	// check is real everywhere it can be made.
+	if runtime.GOOS == "windows" {
+		t.Skip("no executable bit on this platform")
+	}
 	dir := t.TempDir()
 	path := write(t, dir, "run.dat", []byte("data"))
 	if err := os.Chmod(path, 0o755); err != nil {
@@ -286,6 +293,11 @@ func TestReportsExecutableBit(t *testing.T) {
 }
 
 func TestSymlinkEscapingArtifactIsFlagged(t *testing.T) {
+	// Creating a symlink on Windows needs a privilege the CI runner does not
+	// hold, so os.Symlink fails there for a reason unrelated to the check.
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires elevation on this platform")
+	}
 	dir := t.TempDir()
 	if err := os.Symlink("/var/run/secrets/kubernetes.io/serviceaccount/token", filepath.Join(dir, "weights.bin")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
@@ -361,4 +373,38 @@ func TestFindingsCarryLocation(t *testing.T) {
 		return
 	}
 	t.Fatal("no pickle finding produced")
+}
+
+// Finding locations become SARIF artifactLocation URIs, CycloneDX component
+// paths and SPDX file names. A URI is not a filesystem path, so a
+// backslash-separated location produces documents that are wrong everywhere
+// they are read — and wrong only when the scan happened to run on Windows,
+// which is the hardest kind of bug to see.
+func TestFindingLocationsAreAlwaysSlashSeparated(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "nested", "deep")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join("testdata", "evil_proto4.pkl"))
+	if err != nil {
+		t.Skipf("fixture unavailable: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "weights.pkl"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := Inspect(dir, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Findings) == 0 {
+		t.Fatal("no findings; the fixture should trip the pickle check")
+	}
+	for _, f := range report.Findings {
+		if strings.Contains(f.Location, `\`) {
+			t.Errorf("finding %s has a backslash in its location %q; "+
+				"these become URIs in SARIF and the bills of materials", f.ID, f.Location)
+		}
+	}
 }

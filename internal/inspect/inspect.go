@@ -883,12 +883,19 @@ func formatOf(rel string) string {
 	return ""
 }
 
+// relPath is the location a finding reports, always slash-separated.
+//
+// These strings do not stay inside the process: they become SARIF
+// artifactLocation URIs, CycloneDX component paths and SPDX file names. A URI
+// is not a filesystem path, so a Windows-separated location produces a document
+// that is wrong everywhere it is read — and wrong in a way that only shows up
+// when the scan happens to have run on Windows.
 func relPath(root, path string) string {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
-		return path
+		return filepath.ToSlash(path)
 	}
-	return rel
+	return filepath.ToSlash(rel)
 }
 
 func lineOf(data []byte, offset int) int {
