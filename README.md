@@ -1,51 +1,83 @@
 # Tessera
 
-**An AI Bill of Materials you can prove.**
+**Scan the model. Produce the bill of materials. Prove both.**
 
-Tessera reads a model artifact off disk — **GGUF**, **safetensors**, **ONNX**,
-and the pickle, Keras, SavedModel and archive formats that sit beside them —
-and produces an AIBOM in **CycloneDX 1.6/1.7** and **SPDX 3.0.1** from a single
-parse, with the security findings attached to the same document and to a
-**SARIF 2.1.0** report.
+Two jobs, one parse, no network.
 
-Then it does the two things a bill of materials is usually missing:
+### 1. It scans models for what will hurt you
 
-- **Signs it**, with a hybrid post-quantum signature (ML-DSA-87 and ECDSA P-384,
-  both required), so the document has an author.
-- **Re-derives every claim from the bytes**, so the document can be checked
-  against the artifact months later and shown to be still true — or shown not
-  to be.
+Tessera opens **GGUF**, **safetensors** and **ONNX** directly, then walks
+everything sitting beside them — **pickle** (every protocol), **PyTorch**,
+**Keras**, **TensorFlow SavedModel**, **NumPy**, archives, loose Python, native
+libraries. That order matters: the formats it parses natively are the ones that
+*cannot* carry code, so the attack lands in the tokenizer pickle next door.
+
+**67 checks across 21 families**, every one documented below and enforced by a
+test that fails the build if the tool can emit a finding the README does not
+name. A malicious pickle importing `os.system`,
+`trust_remote_code` shipped with the weights, a Jinja chat template a loader
+renders unsandboxed, an ONNX `external_data` path escaping the model directory,
+an archive entry that unpacks over `/etc`.
+
+Plus the one nobody else does: **declared-versus-measured drift**. A config
+claiming `float16` while the tensors hold `Q4_K_M`. A card advertising 8B
+parameters over tensor shapes summing to 525M. The label on the box against what
+is in it.
+
+```
+finding [Critical] TESS-HF-001:     trust_remote_code is enabled
+finding [Critical] TESS-PICKLE-001: Pickle imports a dangerous callable
+finding [High]     TESS-DRIFT-002:  Declared precision does not match the tensors
+finding [High]     TESS-GGUF-010:   Executable chat template
+
+verdict: Quarantined (risk 95)
+  violation [blockUnsafeModel] 2 critical findings: the artifact executes code on load
+exit 3
+```
+
+### 2. It produces an AI Bill of Materials you can prove
+
+The same parse emits **CycloneDX 1.6/1.7**, **SPDX 3.0.1** and **SARIF 2.1.0** —
+the findings travel inside the AIBOM, so the inventory and the risk cannot get
+separated in transit.
+
+Then the two things a bill of materials is usually missing:
+
+- **Signed**, with a hybrid post-quantum signature (ML-DSA-87 *and* ECDSA P-384,
+  both required), so the document has an author that outlives ECDSA.
+- **Re-derivable**, so every claim can be checked against the bytes months later
+  and shown to be still true — or shown not to be.
 
 A signed AIBOM that has drifted from its artifact is a cryptographically
-impeccable lie. That is the gap this closes.
-
-No framework, no network, no cluster. The core has **zero third-party
-dependencies**, pinned by a test.
+impeccable lie. Only the second check catches it.
 
 ```bash
-# One command: parse, walk, document, judge
-tessera scan ./model-dir --out ./boms
+tessera scan ./model-dir --out ./boms                        # scan + document + judge
+tessera-sign attest ./model-dir --key signing.key --out ./boms   # attested AIBOM
 
-# An attested AIBOM: signed, and bound to the artifact digest
-tessera-sign attest ./model-dir --key signing.key --out ./boms
-
-# Months later, on someone else's machine
+# months later, on someone else's machine
 tessera-sign verify-attestation boms/model.cdx.json.att.json \
   --public signing.pub --artifact ./model-dir
 ```
 
 ```
-signature verified (hybrid-mldsa87-ecdsap384-sha384), signed 2026-08-20T…
+signature verified (hybrid-mldsa87-ecdsap384-sha384)
 
 claims re-derived from ./model-dir:
-  [pass] llama
-  [pass] 36e67e11982272fd…
-  [pass] 525336576
-  [pass] Meta-Llama-3-8B-Instruct
-  [pass] Q4_K_M
+  [pass] llama          [pass] Meta-Llama-3-8B-Instruct
+  [pass] 525336576      [pass] Q4_K_M
 
 VERIFIED: signed by the named key, and still true of this artifact
 ```
+
+Point it at a model you have not vetted and it exits 3. Point it at one you have
+and it hands you the paperwork.
+
+No framework, no network, no cluster, no daemon. The core has **zero
+third-party dependencies**, pinned by a test that fails the build if one appears.
+
+It is named for the *tessera hospitalis*, a token two parties broke in half so
+either could later prove the other's provenance.
 
 ## The interface
 
