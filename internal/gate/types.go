@@ -1,6 +1,10 @@
 package gate
 
-import "time"
+import (
+	"time"
+
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
+)
 
 // The policy vocabulary, as plain Go.
 //
@@ -111,19 +115,9 @@ var scannerCategories = map[string]Category{
 	"tessera":         CategoryAIBOM,
 }
 
-// SeverityCounts is a tally of findings by severity.
-type SeverityCounts struct {
-	Critical int32 `json:"critical,omitempty"`
-	High     int32 `json:"high,omitempty"`
-	Medium   int32 `json:"medium,omitempty"`
-	Low      int32 `json:"low,omitempty"`
-	Unknown  int32 `json:"unknown,omitempty"`
-}
-
-// Total is every finding counted, whatever its severity.
-func (s SeverityCounts) Total() int32 {
-	return s.Critical + s.High + s.Medium + s.Low + s.Unknown
-}
+// SeverityCounts is the shared tally type, defined beside Finding so the gate
+// and the ingestion parsers count in the same currency.
+type SeverityCounts = model.SeverityCounts
 
 // Exception waives a violation that a person has reviewed and accepted.
 type Exception struct {

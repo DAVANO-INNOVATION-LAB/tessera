@@ -158,3 +158,15 @@ const (
 	FormatSyftSPDX   = ingest.FormatSyftSPDX
 	FormatTrufflehog = ingest.FormatTrufflehog
 )
+
+// SeverityCountsAreOneType is a compile-time assertion that the gate and the
+// ingestion parsers count in the same currency. They were two structurally
+// identical types once, which forced every consumer to write a conversion that
+// could only be the identity function; if they ever diverge again this stops
+// building rather than reappearing as a confusing type error downstream.
+var _ = func() struct{} {
+	var g GateResult
+	var p IngestedResults
+	g.CVEs = p.Severities
+	return struct{}{}
+}()

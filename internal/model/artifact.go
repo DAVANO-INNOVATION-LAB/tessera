@@ -268,3 +268,24 @@ func (a *Artifact) HasFinding(id string) bool {
 	}
 	return false
 }
+
+// SeverityCounts is a tally of findings by severity.
+//
+// It lives here, beside Finding, because more than one subsystem needs to count
+// the same things: the gate weighs them into a verdict and the ingestion
+// parsers produce them from other scanners' output. Defining it twice — which
+// is how it started — meant one library exposing two structurally identical
+// types for one concept, and every consumer writing a conversion between them
+// that could only ever be the identity function.
+type SeverityCounts struct {
+	Critical int32 `json:"critical,omitempty"`
+	High     int32 `json:"high,omitempty"`
+	Medium   int32 `json:"medium,omitempty"`
+	Low      int32 `json:"low,omitempty"`
+	Unknown  int32 `json:"unknown,omitempty"`
+}
+
+// Total is every finding counted, whatever its severity.
+func (s SeverityCounts) Total() int32 {
+	return s.Critical + s.High + s.Medium + s.Low + s.Unknown
+}

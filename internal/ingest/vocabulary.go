@@ -1,5 +1,7 @@
 package ingest
 
+import "github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
+
 // The scanner vocabulary this package needs, kept here rather than imported.
 //
 // Assay owns a catalogue of scanner container images — which image runs, what
@@ -32,16 +34,5 @@ const (
 	FormatTrufflehog = "trufflehog-json"
 )
 
-// SeverityCounts is a tally of findings by severity.
-type SeverityCounts struct {
-	Critical int32 `json:"critical,omitempty"`
-	High     int32 `json:"high,omitempty"`
-	Medium   int32 `json:"medium,omitempty"`
-	Low      int32 `json:"low,omitempty"`
-	Unknown  int32 `json:"unknown,omitempty"`
-}
-
-// Total is every finding counted, whatever its severity.
-func (s SeverityCounts) Total() int32 {
-	return s.Critical + s.High + s.Medium + s.Low + s.Unknown
-}
+// SeverityCounts is the shared tally type, defined beside Finding.
+type SeverityCounts = model.SeverityCounts
