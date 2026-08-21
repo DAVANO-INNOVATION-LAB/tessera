@@ -41,12 +41,18 @@ func TestEveryFindingIsDocumented(t *testing.T) {
 		t.Fatal("no finding IDs found in internal/ — this test is not looking where it thinks it is")
 	}
 
-	readme, err := os.ReadFile("README.md")
+	// The finding table lives in docs/findings.md rather than the README: a
+	// front page nobody finishes reading is not documentation. The guard
+	// follows it, because the property being enforced is that every emittable
+	// identifier is written down somewhere a reader can find — not that the
+	// README in particular is long.
+	const findingsDoc = "docs/findings.md"
+	page, err := os.ReadFile(findingsDoc)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s is missing; the finding table has to live somewhere: %v", findingsDoc, err)
 	}
 	documented := map[string]bool{}
-	for _, id := range findingID.FindAllString(string(readme), -1) {
+	for _, id := range findingID.FindAllString(string(page), -1) {
 		documented[id] = true
 	}
 
@@ -65,9 +71,9 @@ func TestEveryFindingIsDocumented(t *testing.T) {
 	sort.Strings(phantom)
 
 	if len(undocumented) > 0 {
-		t.Errorf("emitted but not documented in README.md: %v", undocumented)
+		t.Errorf("emitted but not documented in docs/findings.md: %v", undocumented)
 	}
 	if len(phantom) > 0 {
-		t.Errorf("documented in README.md but never emitted: %v", phantom)
+		t.Errorf("documented in docs/findings.md but never emitted: %v", phantom)
 	}
 }
