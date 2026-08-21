@@ -118,3 +118,31 @@ const (
 
 // ScannerStatusFor returns the status to report for a finding count.
 func ScannerStatusFor(findings int) string { return gate.StatusFor(findings) }
+
+// Rule names a gate violation can carry. They are exported because a caller
+// writing an exception has to name the rule it waives, and a waiver naming a
+// rule that does not exist waives nothing while looking like it does.
+const (
+	RuleMaxCriticalCVEs   = gate.RuleMaxCriticalCVEs
+	RuleMaxHighCVEs       = gate.RuleMaxHighCVEs
+	RuleBlockMalware      = gate.RuleBlockMalware
+	RuleBlockSecrets      = gate.RuleBlockSecrets
+	RuleBlockUnsafeModel  = gate.RuleBlockUnsafeModel
+	RuleRequireSignature  = gate.RuleRequireSignature
+	RuleRequireSBOM       = gate.RuleRequireSBOM
+	RuleRequireAIBOM      = gate.RuleRequireAIBOM
+	RuleBlockModelDrift   = gate.RuleBlockModelDrift
+	RuleRequireProvenance = gate.RuleRequireProvenance
+	RuleAllowedFormats    = gate.RuleAllowedFormats
+	RuleBlockedFormats    = gate.RuleBlockedFormats
+	RuleScanIncomplete    = gate.RuleScanIncomplete
+)
+
+// Category outcomes reported alongside a verdict. Unknown is distinct from
+// Clean on purpose: a category nothing examined and a category examined and
+// found clean are opposite facts that would otherwise look identical.
+const (
+	StatusClean    = gate.StatusClean
+	StatusDetected = gate.StatusDetected
+	StatusUnknown  = gate.StatusUnknown
+)
