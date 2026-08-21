@@ -170,3 +170,7 @@ var _ = func() struct{} {
 	g.CVEs = p.Severities
 	return struct{}{}
 }()
+
+// FormatAssay is the previous name for FormatTessera, still accepted because
+// the string travels in already-deployed scanner configuration.
+const FormatAssay = ingest.FormatAssay

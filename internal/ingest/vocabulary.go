@@ -26,7 +26,12 @@ const (
 
 // Output formats this package can read.
 const (
-	FormatTessera    = "tessera"
+	FormatTessera = "tessera"
+	// FormatAssay is the previous name for FormatTessera, kept because the
+	// format string travels in scanner configuration that is already deployed.
+	// Renaming a wire value is free in the source and not free in a cluster
+	// somebody already runs.
+	FormatAssay      = "assay"
 	FormatClamAV     = "clamav"
 	FormatTrivyJSON  = "trivy-json"
 	FormatGrypeJSON  = "grype-json"

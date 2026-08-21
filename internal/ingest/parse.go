@@ -54,7 +54,7 @@ func Parse(format, path string) (*Parsed, error) {
 	}
 
 	switch format {
-	case FormatTessera:
+	case FormatTessera, FormatAssay:
 		return parseAssay(data)
 	case FormatClamAV:
 		return parseClamAV(data)

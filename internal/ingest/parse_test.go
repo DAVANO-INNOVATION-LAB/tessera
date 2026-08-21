@@ -378,3 +378,25 @@ func TestMissingOutputIsReportedAsAbsentNotClean(t *testing.T) {
 		t.Error("Absent is true for a file that exists; it conflates 'wrote nothing' with 'wrote an empty result'")
 	}
 }
+
+// The native format's name changed when the parsers moved into the library.
+// The old name still travels in scanner configuration that is already deployed,
+// so it keeps working: renaming a wire value is free in the source and not free
+// in a cluster somebody is already running.
+func TestBothNamesForTheNativeFormatParse(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "native.json")
+	body := `{"findings":[{"id":"TESS-PICKLE-001","title":"x","severity":"Critical","category":"model"}]}`
+	if err := os.WriteFile(f, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{FormatTessera, FormatAssay} {
+		p, err := Parse(name, f)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", name, err)
+		}
+		if p.Severities.Critical != 1 {
+			t.Errorf("Parse(%q) counted %d criticals, want 1", name, p.Severities.Critical)
+		}
+	}
+}
