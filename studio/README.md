@@ -105,6 +105,8 @@ docker run --rm -v /path/to/models:/models:ro \
   ghcr.io/davano-innovation-lab/tessera:latest scan /models/llama3
 ```
 
+Version tags carry no leading `v` — `:1.0.1`, not `:v1.0.1`.
+
 `tessera`, `tessera-sign` and `tessera-bundle` are all present. Signing and
 offline data bundles are included because an operator working across an air gap
 needs them in the same place as everything else — asking them to assemble a

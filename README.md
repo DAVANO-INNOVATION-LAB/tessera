@@ -79,6 +79,44 @@ third-party dependencies**, pinned by a test that fails the build if one appears
 It is named for the *tessera hospitalis*, a token two parties broke in half so
 either could later prove the other's provenance.
 
+## Run it
+
+One image, 31 MB, distroless and non-root. No shell, no package manager, no
+interpreter — the right shape for something whose job is opening files it does
+not trust.
+
+```bash
+docker run --rm -p 7777:7777 -v /path/to/models:/models:ro \
+  ghcr.io/davano-innovation-lab/tessera:latest
+```
+
+The same image carries the command-line tools, so the container that serves the
+interface also scans in a pipeline:
+
+```bash
+docker run --rm -v /path/to/models:/models:ro \
+  --entrypoint /usr/local/bin/tessera \
+  ghcr.io/davano-innovation-lab/tessera:latest scan /models/llama3
+```
+
+`tessera`, `tessera-sign` and `tessera-bundle` are all present. Version tags
+carry no leading `v` — `:1.0.1`, not `:v1.0.1` — and every binary reports the
+release it was built from, so the image can account for what is inside it.
+
+Images are built for linux/amd64 and linux/arm64 and signed keylessly, so the
+certificate names the repository and workflow that produced them:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/DAVANO-INNOVATION-LAB/tessera/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/davano-innovation-lab/tessera:1.0.1
+```
+
+Six Go modules produce this one container. A module is a source boundary, not a
+deployment boundary: the nesting keeps the parser's dependency tree empty for
+anyone embedding it, and was never meant to imply six things to run.
+
 ## The interface
 
 `tessera-studio` serves a local interface over the same library — the verdict
