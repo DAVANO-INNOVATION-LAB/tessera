@@ -348,3 +348,33 @@ func TestTesseraCleanOutputIsClean(t *testing.T) {
 		}
 	}
 }
+
+// No output file is not the same fact as a clean scan, and the parser cannot
+// tell them apart — only the caller saw the exit code. It has to say which
+// situation it is in rather than returning something that reads as clean.
+func TestMissingOutputIsReportedAsAbsentNotClean(t *testing.T) {
+	p, err := Parse(FormatClamAV, filepath.Join(t.TempDir(), "never-written.txt"))
+	if err != nil {
+		t.Fatalf("a missing file must not be an error: a clean scanner may write none (%v)", err)
+	}
+	if !p.Absent {
+		t.Error("Absent is false for a file that does not exist; the caller cannot tell " +
+			"a clean scan from a scanner that crashed before writing")
+	}
+	if p.Severities.Total() != 0 {
+		t.Error("an absent file produced findings")
+	}
+
+	// A file that exists and is empty is a different fact: the scanner did run.
+	empty := filepath.Join(t.TempDir(), "empty.txt")
+	if err := os.WriteFile(empty, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	q, err := Parse(FormatClamAV, empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Absent {
+		t.Error("Absent is true for a file that exists; it conflates 'wrote nothing' with 'wrote an empty result'")
+	}
+}

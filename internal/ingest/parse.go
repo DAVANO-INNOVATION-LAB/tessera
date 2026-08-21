@@ -24,6 +24,16 @@ type Parsed struct {
 	// Produced reports whether a document-producing scanner emitted one.
 	// Nil when the scanner does not produce a document.
 	Produced *bool
+	// Absent records that there was no output file to read.
+	//
+	// This is reported rather than treated as an error because a scanner that
+	// found nothing legitimately may not write one — erroring here would make
+	// every clean ClamAV run look like a failed scan. But a scanner that
+	// crashed before writing also leaves no file, and those are opposite facts.
+	// Only the caller knows which it was, because only the caller saw the exit
+	// code. Surfacing the distinction is the parser's whole responsibility
+	// here; deciding it is not.
+	Absent bool
 }
 
 // maxFindings caps how many detailed findings are stored in a report. A
@@ -37,8 +47,8 @@ func Parse(format, path string) (*Parsed, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// A scanner that found nothing may not write a file at all.
-			return &Parsed{}, nil
+			// See Parsed.Absent: no file is not by itself a clean scan.
+			return &Parsed{Absent: true}, nil
 		}
 		return nil, fmt.Errorf("read scanner output %s: %w", path, err)
 	}
