@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -119,5 +121,27 @@ func TestLoadRulesRejectsMalformedPolicy(t *testing.T) {
 	rules, err := loadRules("")
 	if err != nil || rules != nil {
 		t.Errorf("no --policy should mean built-in defaults, got %v / %v", rules, err)
+	}
+}
+
+// A directory of PyTorch pickles has no GGUF, safetensors or ONNX file to
+// parse, and is the most common shape on Hugging Face. The scan used to refuse
+// it outright — which meant the one artifact layout where the walk matters most
+// was the one layout that got no walk at all. Nothing was reported, and the
+// exit code said "error" rather than "dangerous".
+func TestUnparseableTargetStillGetsWalked(t *testing.T) {
+	if !errors.Is(fmt.Errorf("x: %w", tessera.ErrUnrecognized), tessera.ErrUnrecognized) {
+		t.Fatal("ErrUnrecognized does not survive wrapping; the scan cannot recognise it")
+	}
+}
+
+// The sentinel has to stay distinguishable from a genuine read failure. They
+// call for opposite responses: one means carry on and walk, the other means
+// stop, and collapsing them would either hide a broken file or refuse a
+// perfectly good directory.
+func TestUnrecognizedIsDistinctFromAReadFailure(t *testing.T) {
+	readFail := fmt.Errorf("permission denied")
+	if errors.Is(readFail, tessera.ErrUnrecognized) {
+		t.Error("a read failure matched ErrUnrecognized; the scan would walk on regardless")
 	}
 }

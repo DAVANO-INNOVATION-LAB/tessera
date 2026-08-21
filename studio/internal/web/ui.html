@@ -1,0 +1,611 @@
+<!-- Tessera Studio.
+     One page, no build step, no framework, no fonts fetched from anywhere —
+     this is a local tool that has to run inside an enclave with no egress, so
+     everything it needs is in this file. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tessera Studio</title>
+<style>
+  /* Light is defined on bare :root so the palette exists without a media query;
+     dark redefines only the tokens. Every colour has a definition outside a
+     conditional block, so nothing is transparent when the query does not match. */
+  :root{
+    --void:#f7f8f8; --panel:#fff; --panel-2:#eef1f1; --line:#dbe1e0; --line-2:#c8d1cf;
+    --ink:#141a20; --mute:#5a6672; --faint:#8994a0;
+    --accent:#0d7f68; --accent-dim:#0d7f6814;
+    --crit:#b3271f; --crit-bg:#b3271f14;
+    --high:#a1650a; --high-bg:#a1650a14;
+    --med:#2a63a8;  --med-bg:#2a63a814;
+    --low:#5a6672;  --low-bg:#5a667214;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    --rail:270px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --void:#0a0d11; --panel:#12171d; --panel-2:#181f27; --line:#222b35; --line-2:#2e3946;
+      --ink:#e2e8ef; --mute:#8b97a6; --faint:#5e6a79;
+      --accent:#4fd9b0; --accent-dim:#4fd9b01a;
+      --crit:#ff6b60; --crit-bg:#ff6b601a;
+      --high:#eeae3c; --high-bg:#eeae3c1a;
+      --med:#6aa8ec;  --med-bg:#6aa8ec1a;
+      --low:#8b97a6;  --low-bg:#8b97a61a;
+    }
+  }
+  :root[data-theme="dark"]{
+    --void:#0a0d11; --panel:#12171d; --panel-2:#181f27; --line:#222b35; --line-2:#2e3946;
+    --ink:#e2e8ef; --mute:#8b97a6; --faint:#5e6a79;
+    --accent:#4fd9b0; --accent-dim:#4fd9b01a;
+    --crit:#ff6b60; --crit-bg:#ff6b601a;
+    --high:#eeae3c; --high-bg:#eeae3c1a;
+    --med:#6aa8ec;  --med-bg:#6aa8ec1a;
+    --low:#8b97a6;  --low-bg:#8b97a61a;
+  }
+
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--void);color:var(--ink);
+    font-family:var(--sans);font-size:14px;line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent)}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+  .mono{font-family:var(--mono)}
+
+  /* ── frame ─────────────────────────────────────────────────────────── */
+  header{
+    display:flex;align-items:center;gap:.9rem;
+    padding:.6rem 1.1rem;border-bottom:1px solid var(--line);
+    background:var(--panel);position:sticky;top:0;z-index:20;
+  }
+  .brand{font-family:var(--mono);font-size:.78rem;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--accent);white-space:nowrap}
+  .brand .dot{opacity:.7;margin-right:.45rem}
+  .rootpath{font-family:var(--mono);font-size:.72rem;color:var(--faint);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .iconbtn{padding:.28rem .55rem;border:1px solid var(--line);border-radius:6px;
+    color:var(--mute);font-size:.72rem;font-family:var(--mono)}
+  .iconbtn:hover{border-color:var(--line-2);color:var(--ink)}
+
+  main{display:grid;grid-template-columns:var(--rail) minmax(0,1fr);
+    height:calc(100% - 41px)}
+  aside{border-right:1px solid var(--line);background:var(--panel);
+    overflow:auto;padding:.9rem .75rem}
+  .pane{overflow:auto;padding:1.4rem 1.6rem 4rem}
+
+  .lbl{font-family:var(--mono);font-size:.66rem;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--faint);margin:.2rem 0 .5rem}
+  .crumb{font-family:var(--mono);font-size:.74rem;color:var(--mute);
+    margin-bottom:.6rem;word-break:break-all}
+
+  .files{list-style:none;margin:0;padding:0}
+  .files li{margin:1px 0}
+  .files button{display:flex;align-items:center;gap:.5rem;width:100%;
+    padding:.34rem .5rem;border-radius:6px;text-align:left;font-size:.84rem}
+  .files button:hover{background:var(--panel-2)}
+  .files button[aria-current="true"]{background:var(--accent-dim);color:var(--accent)}
+  .files .ic{font-family:var(--mono);font-size:.7rem;color:var(--faint);width:1.1em;flex:none}
+  .files .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .files .fmt{margin-left:auto;font-family:var(--mono);font-size:.62rem;
+    color:var(--faint);border:1px solid var(--line);border-radius:4px;
+    padding:0 .3rem;flex:none}
+
+  /* ── verdict ───────────────────────────────────────────────────────── */
+  h1{font-size:1.45rem;margin:0 0 .15rem;letter-spacing:-.01em}
+  .sub{font-family:var(--mono);font-size:.74rem;color:var(--faint);margin:0 0 1rem;
+    word-break:break-all}
+
+  .verdictbar{border:1px solid var(--line);border-left-width:3px;border-radius:9px;
+    padding:.8rem .95rem;margin:0 0 1.1rem;background:var(--panel-2)}
+  .vb-ok{border-left-color:var(--accent);background:var(--accent-dim)}
+  .vb-warn{border-left-color:var(--high);background:var(--high-bg)}
+  .vb-bad{border-left-color:var(--crit);background:var(--crit-bg)}
+  .vb-head{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+  .vb-name{font-weight:650;font-size:1.06rem}
+  .vb-ok .vb-name{color:var(--accent)}
+  .vb-warn .vb-name{color:var(--high)}
+  .vb-bad .vb-name{color:var(--crit)}
+  .chip{font-family:var(--mono);font-size:.68rem;color:var(--mute);
+    border:1px solid var(--line-2);border-radius:999px;padding:.1rem .5rem;white-space:nowrap}
+  .chip.on{color:var(--accent);border-color:currentColor}
+  .chip.off{color:var(--faint)}
+  .vb-list{margin:.6rem 0 0;padding-left:1.05rem;font-size:.86rem}
+  .vb-list li{margin:.18rem 0}
+  .vb-list .mono{font-size:.76rem;color:var(--mute);margin-right:.4rem}
+  .vb-note{margin:.55rem 0 0;font-size:.82rem;color:var(--high)}
+
+  /* ── severity bar: the distribution, at a glance ───────────────────── */
+  .dist{display:flex;height:6px;border-radius:999px;overflow:hidden;
+    background:var(--panel-2);margin:.1rem 0 .55rem}
+  .dist span{display:block}
+  .dist .s-Critical{background:var(--crit)}
+  .dist .s-High{background:var(--high)}
+  .dist .s-Medium{background:var(--med)}
+  .dist .s-Low{background:var(--low)}
+  .dist .s-none{background:var(--accent);flex:1}
+
+  /* ── metadata ──────────────────────────────────────────────────────── */
+  .facts{display:flex;flex-wrap:wrap;gap:.4rem;margin:0 0 1.4rem}
+  .fact{border:1px solid var(--line);border-radius:7px;background:var(--panel);
+    padding:.42rem .65rem;min-width:0}
+  .fact .k{font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--faint)}
+  .fact .v{font-size:.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    max-width:26ch}
+  .fact .v.mono{font-family:var(--mono);font-size:.8rem}
+
+  /* ── sections ──────────────────────────────────────────────────────── */
+  h2{font-size:.95rem;margin:1.9rem 0 .1rem;display:flex;align-items:baseline;
+    gap:.55rem;flex-wrap:wrap}
+  h2 .count{font-family:var(--mono);font-size:.72rem;color:var(--faint);font-weight:400}
+  .hint{font-size:.82rem;color:var(--mute);margin:.15rem 0 .8rem}
+
+  /* ── filters ───────────────────────────────────────────────────────── */
+  .filters{display:flex;gap:.35rem;flex-wrap:wrap;align-items:center;margin:.55rem 0 .9rem}
+  .filters button{font-family:var(--mono);font-size:.7rem;padding:.2rem .55rem;
+    border:1px solid var(--line);border-radius:999px;color:var(--mute)}
+  .filters button:hover{border-color:var(--line-2);color:var(--ink)}
+  .filters button[aria-pressed="true"]{background:var(--panel-2);color:var(--ink);
+    border-color:var(--line-2)}
+  .filters button.s-Critical[aria-pressed="true"]{color:var(--crit);border-color:var(--crit)}
+  .filters button.s-High[aria-pressed="true"]{color:var(--high);border-color:var(--high)}
+  .filters button.s-Medium[aria-pressed="true"]{color:var(--med);border-color:var(--med)}
+  .filters button.s-Low[aria-pressed="true"]{color:var(--low);border-color:var(--low)}
+  .search{margin-left:auto;display:flex;align-items:center;gap:.4rem}
+  .search input{font-family:var(--mono);font-size:.74rem;padding:.24rem .5rem;
+    border:1px solid var(--line);border-radius:6px;background:var(--panel);
+    color:var(--ink);width:15ch}
+  .search input:focus{outline:none;border-color:var(--accent)}
+
+  /* ── findings ──────────────────────────────────────────────────────── */
+  .finding{border:1px solid var(--line);border-left-width:3px;border-radius:8px;
+    background:var(--panel);margin:.4rem 0;overflow:hidden}
+  .finding.s-Critical{border-left-color:var(--crit)}
+  .finding.s-High{border-left-color:var(--high)}
+  .finding.s-Medium{border-left-color:var(--med)}
+  .finding.s-Low{border-left-color:var(--low)}
+  .fhead{display:flex;align-items:center;gap:.55rem;padding:.5rem .7rem;
+    width:100%;text-align:left;flex-wrap:wrap}
+  .fhead:hover{background:var(--panel-2)}
+  .sev{font-family:var(--mono);font-size:.62rem;letter-spacing:.08em;
+    text-transform:uppercase;padding:.08rem .4rem;border-radius:4px;flex:none}
+  .sev.s-Critical{color:var(--crit);background:var(--crit-bg)}
+  .sev.s-High{color:var(--high);background:var(--high-bg)}
+  .sev.s-Medium{color:var(--med);background:var(--med-bg)}
+  .sev.s-Low{color:var(--low);background:var(--low-bg)}
+  .fid{font-family:var(--mono);font-size:.7rem;color:var(--faint);flex:none}
+  .ftitle{font-weight:550;font-size:.9rem}
+  .floc{margin-left:auto;font-family:var(--mono);font-size:.68rem;color:var(--faint);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:24ch;flex:none}
+  .caret{font-family:var(--mono);font-size:.6rem;color:var(--faint);flex:none}
+  .fbody{padding:0 .7rem .65rem 1.85rem;font-size:.85rem;color:var(--mute)}
+  .finding[data-open="false"] .fbody{display:none}
+
+  /* ── tables ────────────────────────────────────────────────────────── */
+  table{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:.3rem}
+  th{text-align:left;font-family:var(--mono);font-size:.64rem;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--faint);font-weight:400;
+    padding:.3rem .5rem;border-bottom:1px solid var(--line)}
+  td{padding:.34rem .5rem;border-bottom:1px solid var(--line)}
+  .scroller{overflow-x:auto}
+
+  /* ── coverage ──────────────────────────────────────────────────────── */
+  .tabs{display:flex;gap:.3rem;flex-wrap:wrap;margin:.5rem 0 .2rem}
+  .tabs button{font-size:.76rem;padding:.24rem .6rem;border:1px solid var(--line);
+    border-radius:6px;color:var(--mute)}
+  .tabs button:hover{border-color:var(--line-2);color:var(--ink)}
+  .tabs button[aria-selected="true"]{background:var(--panel-2);color:var(--ink);
+    border-color:var(--line-2)}
+  .covsum{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin:.7rem 0 .5rem}
+  .meter{flex:1;min-width:140px;height:6px;border-radius:999px;background:var(--panel-2);
+    overflow:hidden;display:flex}
+  .meter .yes{background:var(--accent)}
+  .meter .no{background:var(--line-2)}
+  .meter .na{background:transparent}
+  .covgroup{font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--faint);margin:.9rem 0 .2rem}
+  .cov .row{display:grid;grid-template-columns:2.6rem 1fr;gap:.5rem;
+    padding:.28rem .1rem;border-bottom:1px solid var(--line);align-items:start}
+  .cov .st{font-family:var(--mono);font-size:.64rem;text-transform:uppercase;
+    letter-spacing:.06em;padding-top:.12rem}
+  .cov .st.populated{color:var(--accent)}
+  .cov .st.absent{color:var(--faint)}
+  .cov .st\.out-of-scope,.cov .st.oos{color:var(--mute)}
+  .cov .nm{font-size:.84rem}
+  .cov .vl{font-family:var(--mono);font-size:.72rem;color:var(--mute);
+    word-break:break-all;display:block}
+  .cov .nt{font-size:.78rem;color:var(--faint);display:block}
+
+  /* ── actions ───────────────────────────────────────────────────────── */
+  .actions{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:1.6rem;
+    padding-top:1.1rem;border-top:1px solid var(--line)}
+  .actions a{font-family:var(--mono);font-size:.74rem;text-decoration:none;
+    border:1px solid var(--line);border-radius:6px;padding:.32rem .65rem;color:var(--mute)}
+  .actions a:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* ── states ────────────────────────────────────────────────────────── */
+  .empty,.spin{color:var(--faint);font-size:.86rem}
+  .empty{display:flex;flex-direction:column;gap:.4rem;align-items:flex-start;
+    padding:3rem 0;max-width:46ch}
+  .empty strong{color:var(--mute);font-weight:550;font-size:.95rem}
+  .err{color:var(--crit);background:var(--crit-bg);border:1px solid var(--crit);
+    border-radius:7px;padding:.6rem .8rem;font-size:.86rem}
+  .skel{height:9px;border-radius:999px;background:var(--panel-2);margin:.45rem 0;
+    animation:pulse 1.2s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.45}}
+
+  @media (max-width:760px){
+    main{grid-template-columns:1fr;height:auto}
+    aside{border-right:0;border-bottom:1px solid var(--line);max-height:38vh}
+    .pane{padding:1.1rem}
+    .floc{display:none}
+  }
+</style>
+
+<header>
+  <span class="brand"><span class="dot">&#9672;</span>Tessera Studio</span>
+  <span class="rootpath" id="root"></span>
+  <button class="iconbtn" id="theme" title="Switch theme">theme</button>
+</header>
+
+<main>
+  <aside>
+    <p class="lbl">Models</p>
+    <div class="crumb" id="crumb">/</div>
+    <ul class="files" id="files"></ul>
+  </aside>
+
+  <section class="pane" id="pane">
+    <div class="empty">
+      <strong>Select a model to analyse.</strong>
+      <span>Tessera reads the file itself — no framework, no network — and walks
+      everything beside it for formats that execute on load.</span>
+    </div>
+  </section>
+</main>
+
+<script>
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => (
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const SEV = ['Critical','High','Medium','Low'];
+const rank = (s) => { const i = SEV.indexOf(s); return i < 0 ? 9 : i; };
+
+let cwd = '', current = null, state = null;
+
+/* ── theme ─────────────────────────────────────────────────────────── */
+(function initTheme(){
+  const saved = localStorage.getItem('tessera-theme');
+  if (saved) document.documentElement.dataset.theme = saved;
+  el('theme').addEventListener('click', () => {
+    const root = document.documentElement;
+    const dark = root.dataset.theme
+      ? root.dataset.theme === 'dark'
+      : matchMedia('(prefers-color-scheme:dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+    localStorage.setItem('tessera-theme', root.dataset.theme);
+  });
+})();
+
+/* ── browsing ──────────────────────────────────────────────────────── */
+async function browse(path) {
+  const res = await fetch('/api/browse?path=' + encodeURIComponent(path));
+  const data = await res.json();
+  if (data.error) { el('files').innerHTML = '<li class="err">' + esc(data.error) + '</li>'; return; }
+
+  cwd = data.path === '.' ? '' : data.path;
+  el('crumb').textContent = '/' + (cwd || '');
+
+  const items = [];
+  if (cwd) {
+    const up = cwd.split('/').slice(0, -1).join('/');
+    items.push(`<li><button data-dir="${esc(up)}"><span class="ic">..</span>
+      <span class="nm">parent</span></button></li>`);
+  }
+  for (const e of data.entries) {
+    if (e.isDir) {
+      items.push(`<li><button data-dir="${esc(e.path)}"><span class="ic">&#9656;</span>
+        <span class="nm">${esc(e.name)}</span></button></li>`);
+    } else if (e.format) {
+      items.push(`<li><button data-file="${esc(e.path)}"
+        aria-current="${e.path === current}"><span class="ic">&#9679;</span>
+        <span class="nm">${esc(e.name)}</span>
+        <span class="fmt">${esc(e.format)}</span></button></li>`);
+    }
+  }
+  el('files').innerHTML = items.join('') ||
+    '<li class="spin">no models or folders here</li>';
+}
+
+el('files').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  if (b.dataset.dir !== undefined) browse(b.dataset.dir);
+  else if (b.dataset.file) analyse(b.dataset.file);
+});
+
+/* ── analysis ──────────────────────────────────────────────────────── */
+async function analyse(path) {
+  current = path;
+  // The URL names what is on screen, so an analysis can be linked to, reloaded,
+  // or opened by something automated. Replace rather than push: re-analysing
+  // the same model is not a new place to go back from.
+  if (location.hash.slice(1) !== path) history.replaceState(null, '', '#' + path);
+  el('pane').innerHTML = `<h1>&nbsp;</h1><p class="sub">${esc(path)}</p>
+    <div class="skel" style="width:70%"></div>
+    <div class="skel" style="width:45%"></div>
+    <div class="skel" style="width:58%"></div>
+    <p class="spin" style="margin-top:.9rem">reading the file and walking what sits beside it&hellip;</p>`;
+  const res = await fetch('/api/analyze?path=' + encodeURIComponent(path));
+  const data = await res.json();
+  if (data.error) {
+    el('pane').innerHTML = '<div class="err">' + esc(data.error) + '</div>';
+    return;
+  }
+  state = { data, path, sev: new Set(), q: '' };
+  render();
+  browse(cwd);
+  loadCoverage(path, 'cisa-2026');
+}
+
+function render() {
+  const { data, path } = state;
+  const a = data.artifact, worst = data.worst, v = data.verdict || {};
+  const findings = (a.findings || []).slice().sort((x, y) => {
+    const d = rank(x.severity) - rank(y.severity);
+    return d || String(x.id).localeCompare(String(y.id));
+  });
+
+  const counts = {};
+  for (const f of findings) counts[f.severity] = (counts[f.severity] || 0) + 1;
+
+  const lic = (a.licenses || [])[0];
+  const facts = [
+    ['format', a.format, true],
+    ['version', a.identity.version, false],
+    ['supplier', a.identity.organization || a.identity.author, false],
+    ['licence', lic ? (lic.spdxID || lic.raw) : '', true],
+    ['architecture', a.params.architecture, false],
+    ['quantization', a.params.quantization, true],
+    ['parameters', a.params.measuredParameters ? fmtNum(a.params.measuredParameters) : '', true],
+    ['tensors', a.tensorCount ? String(a.tensorCount) : '', true],
+    ['producer', a.runtime.producer, false],
+  ].filter(c => c[1]);
+
+  const vd = v.Verdict || v.verdict || '';
+  const vclass = {Approved:'ok', ReviewRequired:'warn', Quarantined:'bad'}[vd] || 'ok';
+  const violations = v.Violations || v.violations || [];
+  const risk = v.RiskScore ?? v.riskScore ?? 0;
+
+  // The distribution bar. A reader should learn "two criticals" from the shape
+  // before reading a single finding title.
+  const total = findings.length;
+  const dist = total
+    ? SEV.filter(s => counts[s]).map(s =>
+        `<span class="s-${s}" style="flex:${counts[s]}" title="${counts[s]} ${s}"></span>`).join('')
+    : '<span class="s-none"></span>';
+
+  el('pane').innerHTML = `
+    <h1>${esc(a.identity.name || 'unnamed model')}</h1>
+    <p class="sub">${esc(path)}</p>
+
+    <div class="verdictbar vb-${vclass}">
+      <div class="vb-head">
+        <span class="vb-name">${esc(vd || 'Analysed')}</span>
+        <span class="chip">risk ${esc(String(risk))}</span>
+        ${worst ? `<span class="chip">worst ${esc(worst)}</span>`
+                : `<span class="chip on">no findings</span>`}
+        <span class="chip ${data.deep ? 'on' : 'off'}">${data.deep ? 'deep walk' : 'model only'}</span>
+      </div>
+      ${violations.length ? '<ul class="vb-list">' + violations.map(x =>
+        `<li><span class="mono">${esc(x.Rule || x.rule)}</span>${esc(x.Message || x.message)}</li>`
+      ).join('') + '</ul>' : ''}
+      ${data.truncated ? `<p class="vb-note">The walk was truncated, so part of the
+        artifact was never examined. A clean result over a partial walk is not a
+        clean artifact.</p>` : ''}
+    </div>
+
+    <div class="dist">${dist}</div>
+
+    <div class="facts">
+      ${facts.map(([k, val, m]) => `<div class="fact"><div class="k">${esc(k)}</div>
+        <div class="v${m ? ' mono' : ''}" title="${esc(val)}">${esc(val)}</div></div>`).join('')}
+    </div>
+
+    <h2>Findings <span class="count" id="fcount"></span></h2>
+    <p class="hint">${total
+      ? 'Sorted worst first. Select a row to read why it matters.'
+      : 'Nothing in this file&rsquo;s metadata, and nothing executable beside it.'}</p>
+    ${total ? `<div class="filters">
+      ${SEV.filter(s => counts[s]).map(s =>
+        `<button class="s-${s}" data-sev="${s}" aria-pressed="false">${s} ${counts[s]}</button>`).join('')}
+      <button data-clear aria-pressed="false">all</button>
+      <span class="search"><input id="q" type="search" placeholder="filter&hellip;"
+        aria-label="Filter findings"></span>
+    </div>` : ''}
+    <div id="flist"></div>
+
+    <h2>Files <span class="count">${(a.files || []).length}</span></h2>
+    <p class="hint">Every physical file is hashed independently, so a multi-file
+      model is a set of pinned components rather than one opaque blob.</p>
+    <div class="scroller"><table>
+      <thead><tr><th>path</th><th>role</th><th>size</th><th>sha-256</th></tr></thead>
+      <tbody>${(a.files || []).map(f => `<tr>
+        <td>${esc(f.path)}</td><td class="mono">${esc(f.role)}</td>
+        <td class="mono">${fmtSize(f.size)}</td>
+        <td class="mono" title="${esc(f.sha256)}">${esc((f.sha256 || '').slice(0, 16))}&hellip;</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+
+    <h2>Standards coverage</h2>
+    <p class="hint">What these bytes can supply against a published minimum-elements
+      list &mdash; including the rows no static parse can ever fill, with the reason.</p>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-std="cisa-2026" aria-selected="true">CISA 2026</button>
+      <button role="tab" data-std="g7" aria-selected="false">G7 for AI</button>
+      <button role="tab" data-std="cert-in" aria-selected="false">CERT-In</button>
+      <button role="tab" data-std="bsi" aria-selected="false">BSI TR-03183-2</button>
+    </div>
+    <div class="cov" id="cov"><div class="skel" style="width:60%"></div></div>
+
+    <div class="actions">
+      <a href="/api/bom?format=cyclonedx&path=${encodeURIComponent(path)}">CycloneDX 1.6</a>
+      <a href="/api/bom?format=cyclonedx-1.7&path=${encodeURIComponent(path)}">CycloneDX 1.7</a>
+      <a href="/api/bom?format=spdx&path=${encodeURIComponent(path)}">SPDX 3.0.1</a>
+      <a href="/api/bom?format=sarif&path=${encodeURIComponent(path)}">SARIF 2.1.0</a>
+    </div>`;
+
+  renderFindings();
+  const q = el('q');
+  if (q) q.addEventListener('input', () => { state.q = q.value.toLowerCase(); renderFindings(); });
+}
+
+function renderFindings() {
+  const list = el('flist');
+  if (!list) return;
+  const all = (state.data.artifact.findings || []).slice().sort((x, y) => {
+    const d = rank(x.severity) - rank(y.severity);
+    return d || String(x.id).localeCompare(String(y.id));
+  });
+  const shown = all.filter(f => {
+    if (state.sev.size && !state.sev.has(f.severity)) return false;
+    if (!state.q) return true;
+    return (f.id + ' ' + f.title + ' ' + (f.description || '') + ' ' + (f.location || ''))
+      .toLowerCase().includes(state.q);
+  });
+
+  const c = el('fcount');
+  if (c) c.textContent = shown.length === all.length
+    ? String(all.length) : `${shown.length} of ${all.length}`;
+
+  list.innerHTML = shown.length ? shown.map((f, i) => `
+    <div class="finding s-${esc(f.severity)}" data-open="${i === 0 && !state.q ? 'true' : 'false'}">
+      <button class="fhead" data-toggle>
+        <span class="caret">&#9656;</span>
+        <span class="sev s-${esc(f.severity)}">${esc(f.severity)}</span>
+        <span class="fid">${esc(f.id)}</span>
+        <span class="ftitle">${esc(f.title)}</span>
+        ${f.location ? `<span class="floc" title="${esc(f.location)}">${esc(f.location)}</span>` : ''}
+      </button>
+      <div class="fbody">${esc(f.description || 'No further detail.')}</div>
+    </div>`).join('')
+    : `<p class="spin">No findings match this filter.</p>`;
+
+  for (const d of list.querySelectorAll('.finding')) {
+    d.querySelector('[data-toggle]').addEventListener('click', () => {
+      d.dataset.open = d.dataset.open === 'true' ? 'false' : 'true';
+      d.querySelector('.caret').innerHTML = d.dataset.open === 'true' ? '&#9662;' : '&#9656;';
+    });
+    if (d.dataset.open === 'true') d.querySelector('.caret').innerHTML = '&#9662;';
+  }
+}
+
+document.addEventListener('click', (ev) => {
+  const sev = ev.target.closest('[data-sev]');
+  if (sev && state) {
+    const s = sev.dataset.sev;
+    state.sev.has(s) ? state.sev.delete(s) : state.sev.add(s);
+    sev.setAttribute('aria-pressed', state.sev.has(s));
+    const clear = document.querySelector('[data-clear]');
+    if (clear) clear.setAttribute('aria-pressed', state.sev.size === 0);
+    renderFindings();
+    return;
+  }
+  if (ev.target.closest('[data-clear]') && state) {
+    state.sev.clear();
+    for (const b of document.querySelectorAll('[data-sev]')) b.setAttribute('aria-pressed', 'false');
+    ev.target.closest('[data-clear]').setAttribute('aria-pressed', 'true');
+    renderFindings();
+  }
+});
+
+/* ── coverage ──────────────────────────────────────────────────────── */
+async function loadCoverage(path, standard) {
+  const box = document.getElementById('cov');
+  if (!box) return;
+  box.innerHTML = '<div class="skel" style="width:60%"></div><div class="skel" style="width:40%"></div>';
+  const res = await fetch('/api/coverage?standard=' + encodeURIComponent(standard) +
+    '&path=' + encodeURIComponent(path));
+  const r = await res.json();
+  if (r.error) { box.innerHTML = '<div class="err">' + esc(r.error) + '</div>'; return; }
+
+  const label = {populated:'yes', absent:'—', 'out-of-scope':'n/a'};
+  const cls = {populated:'populated', absent:'absent', 'out-of-scope':'oos'};
+  const total = r.populated + r.absent + r.outOfScope;
+
+  let rows = '', cluster = '';
+  for (const e of r.elements) {
+    if (e.cluster !== cluster) {
+      cluster = e.cluster;
+      rows += `<div class="covgroup">${esc(cluster)}</div>`;
+    }
+    rows += `<div class="row">
+      <span class="st ${cls[e.status]}">${label[e.status] || esc(e.status)}</span>
+      <span><span class="nm">${esc(e.name)}</span>
+        ${e.value ? `<span class="vl">${esc(e.value)}</span>` : ''}
+        ${e.note ? `<span class="nt">${esc(e.note)}</span>` : ''}</span>
+    </div>`;
+  }
+
+  box.innerHTML = `
+    <div class="covsum">
+      <span class="chip on">${r.populated} supplied</span>
+      <span class="chip">${r.absent} absent</span>
+      <span class="chip off">${r.outOfScope} out of scope</span>
+      <span class="meter" title="${r.populated} of ${total}">
+        <span class="yes" style="flex:${r.populated}"></span>
+        <span class="no" style="flex:${r.absent}"></span>
+        <span class="na" style="flex:${r.outOfScope}"></span>
+      </span>
+    </div>
+    <p class="hint" style="margin:0 0 .3rem">${esc(r.title)}</p>
+    ${rows}`;
+}
+
+document.addEventListener('click', (ev) => {
+  const tab = ev.target.closest('.tabs button[data-std]');
+  if (!tab || !state) return;
+  for (const b of document.querySelectorAll('.tabs button[data-std]')) {
+    b.setAttribute('aria-selected', b === tab);
+  }
+  loadCoverage(state.path, tab.dataset.std);
+});
+
+/* ── helpers ───────────────────────────────────────────────────────── */
+function fmtSize(n) {
+  if (!n) return '';
+  const u = ['B','KiB','MiB','GiB','TiB'];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return (i ? v.toFixed(1) : v) + ' ' + u[i];
+}
+function fmtNum(n) {
+  const v = Number(n);
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return String(v);
+}
+
+fetch('/api/browse?path=').then(r => r.json()).then(d => {
+  el('root').textContent = d.root || '';
+});
+
+// Open whatever the URL names. This is what makes a result shareable, and it is
+// also the only way something without a mouse — a screenshot runner, a smoke
+// test — can reach a rendered analysis.
+async function openFromURL() {
+  const want = decodeURIComponent(location.hash.slice(1));
+  const theme = new URLSearchParams(location.search).get('theme');
+  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  if (!want) { browse(''); return; }
+  const dir = want.includes('/') ? want.slice(0, want.lastIndexOf('/')) : '';
+  await browse(dir);
+  await analyse(want);
+}
+
+addEventListener('hashchange', openFromURL);
+openFromURL();
+</script>

@@ -1,0 +1,4 @@
+/bin/
+# Local dual-development only; the module depends on a published tessera.
+go.work
+go.work.sum

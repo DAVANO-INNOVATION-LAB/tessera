@@ -1,0 +1,96 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26.6"
+
+jobs:
+  build:
+    name: build & test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: gofmt
+        if: runner.os != 'Windows'
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt'd:"; echo "$unformatted"; exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: test (race)
+        run: go test ./... -race
+
+  crypto:
+    name: signature properties
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}" }
+      # The properties a signature has to have, run on their own so a failure
+      # here is unmistakable: an altered document must not verify, a foreign key
+      # must not verify, and neither half of the hybrid may be droppable.
+      - name: adversarial cases
+        run: go test ./internal/bundle -run 'TestVerifyRejects|TestVerifyRequires|TestSuiteIsAuthenticated|TestSignedTimestamp' -v
+
+  analysis:
+    name: static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}" }
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          "$(go env GOPATH)/bin/staticcheck" ./...
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+  roundtrip:
+    name: end-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}" }
+      # Prove the CLI actually works, and that a tampered document is refused
+      # with the documented exit code rather than merely printing a complaint.
+      - name: keygen, sign, verify, tamper
+        run: |
+          set -e
+          go build -o tessera-sign ./cmd/tessera-sign
+          ./tessera-sign keygen --out ./k
+          echo '{"bomFormat":"CycloneDX","specVersion":"1.6"}' > doc.json
+          ./tessera-sign sign --key ./k/signing.key doc.json
+          ./tessera-sign verify --pub ./k/signing.pub doc.json doc.json.sig
+          echo '{"bomFormat":"CycloneDX","specVersion":"1.6","x":1}' > doc.json
+          set +e
+          ./tessera-sign verify --pub ./k/signing.pub doc.json doc.json.sig
+          got=$?
+          set -e
+          if [ "$got" -ne 3 ]; then
+            echo "a tampered document must exit 3, got $got"; exit 1
+          fi
+          echo "tampered document correctly refused with exit 3"

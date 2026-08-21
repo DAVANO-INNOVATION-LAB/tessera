@@ -6,6 +6,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -77,7 +78,7 @@ func Parse(ctx context.Context, path string, opts Options) (*model.Artifact, err
 
 	format, ok := Detect(primary)
 	if !ok {
-		return nil, fmt.Errorf("%s: not a recognized model format (gguf, safetensors, onnx)", primary)
+		return nil, fmt.Errorf("%s: %w (gguf, safetensors, onnx)", primary, ErrUnrecognized)
 	}
 
 	var a *model.Artifact
@@ -168,7 +169,7 @@ func pickPrimary(dir string) (string, error) {
 	case len(onnx) > 0:
 		return filepath.Join(dir, onnx[0]), nil
 	}
-	return "", fmt.Errorf("%s: no gguf, safetensors, or onnx file found", dir)
+	return "", fmt.Errorf("%s: %w", dir, ErrUnrecognized)
 }
 
 // firstShard returns the first shard of a sharded set, or the lone file. Shard
@@ -437,3 +438,13 @@ func relDisplay(dir, path string) string {
 	}
 	return filepath.Base(path)
 }
+
+// ErrUnrecognized reports that nothing here can be parsed as a model.
+//
+// It is a sentinel rather than a message because the distinction it carries is
+// load-bearing: "there is no model file to open" and "the model file is broken"
+// call for opposite responses. A directory holding only pickles is the common
+// case on Hugging Face, and it is precisely the case where the walk for
+// executable formats matters most — so a caller has to be able to recognise it
+// and carry on rather than stopping.
+var ErrUnrecognized = errors.New("no recognized model format")

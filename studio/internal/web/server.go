@@ -1,0 +1,472 @@
+// Package web serves Tessera Studio: a local, single-page interface over the
+// tessera analyser.
+//
+// The server is deliberately small and local-only. It binds to the loopback
+// interface, holds no state between requests, and stores nothing — an analysis
+// is performed and returned, never queued or persisted. That keeps the app in
+// the same trust posture as the library it wraps: a person inspecting an
+// untrusted artifact on their own machine.
+package web
+
+import (
+	"context"
+	"embed"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	tessera "github.com/DAVANO-INNOVATION-LAB/tessera"
+)
+
+//go:embed ui.html
+var assets embed.FS
+
+// maxConcurrentAnalyses bounds how many analyses run at once. Each one hashes
+// every file of a model, which for a real model is gigabytes of I/O, and the
+// endpoints are unauthenticated by design — so without a bound a handful of
+// requests can saturate the machine.
+const maxConcurrentAnalyses = 2
+
+// Server serves the UI and the analysis endpoints.
+type Server struct {
+	// Root confines every analysis to this directory. A path outside it is
+	// refused. The UI is a convenience over a security tool, so it must not
+	// become a way to read arbitrary files off the host through a browser.
+	Root    string
+	Version string
+
+	// slots limits concurrent analyses; created lazily on first use.
+	slotsOnce sync.Once
+	slots     chan struct{}
+}
+
+// acquire takes an analysis slot, or reports that the caller went away first.
+func (s *Server) acquire(ctx context.Context) error {
+	s.slotsOnce.Do(func() { s.slots = make(chan struct{}, maxConcurrentAnalyses) })
+	select {
+	case s.slots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Server) release() { <-s.slots }
+
+// Handler returns the HTTP routes.
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", s.handleIndex)
+	mux.HandleFunc("GET /api/browse", s.handleBrowse)
+	mux.HandleFunc("GET /api/analyze", s.handleAnalyze)
+	mux.HandleFunc("GET /api/bom", s.handleBOM)
+	mux.HandleFunc("GET /api/coverage", s.handleCoverage)
+	return s.checkHost(securityHeaders(mux))
+}
+
+// AllowedHosts, when non-empty, replaces the default loopback-only host check.
+// Set it when serving on a routable address, which is also when you should be
+// thinking about who else can reach the port.
+var AllowedHosts []string
+
+// checkHost rejects requests whose Host header is not a loopback name.
+//
+// Binding to 127.0.0.1 keeps other machines out, but it is not a boundary
+// against the user's own browser: a page they visit can point a hostname at
+// 127.0.0.1, and the browser will then treat this server as same-origin and let
+// that page read the responses. That is DNS rebinding, and against this server
+// it would disclose the model directory listing, model identities, and the
+// SHA-256 of every private artifact. Checking Host closes it, because the
+// attacker's page cannot forge a loopback Host header.
+func (s *Server) checkHost(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+
+		ok := host == "127.0.0.1" || host == "::1" || host == "localhost"
+		for _, allowed := range AllowedHosts {
+			if strings.EqualFold(host, allowed) {
+				ok = true
+			}
+		}
+		if !ok {
+			http.Error(w, "unrecognised Host header", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The page is self-contained, so it needs nothing from anywhere else.
+		// frame-ancestors, base-uri and form-action are named explicitly because
+		// none of them fall back to default-src.
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "+
+				"connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	b, err := assets.ReadFile("ui.html")
+	if err != nil {
+		http.Error(w, "ui unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(b)
+}
+
+// resolve confines a user-supplied path to Root and reports the absolute path.
+func (s *Server) resolve(rel string) (string, error) {
+	root, err := filepath.Abs(s.Root)
+	if err != nil {
+		return "", err
+	}
+	// Reject absolute input outright; everything is relative to Root.
+	if rel != "" && rel != "." && filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path must be relative to the served directory")
+	}
+	// Every path, including the root itself, goes through the same resolution
+	// below. Returning the root early would hand back an unresolved path on any
+	// system where the temporary or home directory is itself a symlink, so the
+	// value callers get would differ in form depending on the input.
+	full := filepath.Join(root, filepath.Clean("/"+rel))
+	if full != root && !strings.HasPrefix(full, root+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes the served directory")
+	}
+
+	// The lexical check above cannot see a symlink. A link created inside the
+	// served directory that points at / would pass it and then let the browser
+	// walk the whole filesystem, so containment is confirmed again after
+	// resolving both ends.
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("served directory is not resolvable")
+	}
+	fullReal, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		// A path that does not exist yet cannot be resolved; judge its parent,
+		// which is what decides where it would land.
+		parent, perr := filepath.EvalSymlinks(filepath.Dir(full))
+		if perr != nil {
+			return "", fmt.Errorf("path is not resolvable")
+		}
+		fullReal = filepath.Join(parent, filepath.Base(full))
+	}
+	if fullReal != rootReal && !strings.HasPrefix(fullReal, rootReal+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes the served directory")
+	}
+	return fullReal, nil
+}
+
+type browseEntry struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	IsDir  bool   `json:"isDir"`
+	Format string `json:"format,omitempty"`
+	Size   int64  `json:"size,omitempty"`
+}
+
+// handleBrowse lists the served directory so the UI can offer what is there,
+// marking which entries tessera recognizes as models.
+func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	rel := r.URL.Query().Get("path")
+	dir, err := s.resolve(rel)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+
+	entries, err := readDirSorted(dir)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+
+	out := make([]browseEntry, 0, len(entries))
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		childRel := filepath.Join(rel, e.Name())
+		be := browseEntry{Name: e.Name(), Path: filepath.ToSlash(childRel), IsDir: e.IsDir()}
+		if !e.IsDir() {
+			if info, err := e.Info(); err == nil {
+				be.Size = info.Size()
+			}
+			if f, ok := tessera.Detect(filepath.Join(dir, e.Name())); ok {
+				be.Format = string(f)
+			}
+		}
+		out = append(out, be)
+	}
+	writeJSON(w, map[string]any{"path": filepath.ToSlash(rel), "entries": out})
+}
+
+// handleAnalyze runs an analysis and returns the full artifact.
+func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
+	target, err := s.resolve(r.URL.Query().Get("path"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	if err := s.acquire(ctx); err != nil {
+		return // the client disconnected while queued
+	}
+	defer s.release()
+
+	art, err := tessera.Analyze(ctx, target)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+
+	// The walk is part of an analysis here rather than a separate request. The
+	// formats this tool parses natively cannot carry code; what can is sitting
+	// beside them, and a result that showed only the model would be reassuring
+	// about the wrong file.
+	parsed := len(art.Findings)
+	truncated := false
+	if r.URL.Query().Get("deep") != "0" {
+		if rep, err := tessera.Inspect(ctx, filepath.Dir(target)); err == nil {
+			art.Findings = mergeFindings(art.Findings, rep.Findings)
+			truncated = rep.Truncated
+		}
+	}
+	walked := art.Findings[min(parsed, len(art.Findings)):]
+
+	results := []tessera.ScannerResult{{
+		Scanner:    "tessera",
+		Status:     tessera.ScannerStatusFor(parsed),
+		Findings:   int32(parsed),
+		Severities: tally(art.Findings[:parsed], false),
+		Drift:      tally(art.Findings[:parsed], true),
+		Produced:   boolPtr(true),
+	}, {
+		Scanner:    "model-inspector",
+		Status:     tessera.ScannerStatusFor(len(walked)),
+		Findings:   int32(len(walked)),
+		Severities: tally(walked, false),
+	}}
+	verdict := tessera.Gate(results, tessera.GateArtifact{
+		URI:    r.URL.Query().Get("path"),
+		Digest: art.PrimaryFile().SHA256,
+		Format: string(art.Format),
+	}, nil, nil, time.Now())
+
+	writeJSON(w, map[string]any{
+		"artifact":  art,
+		"worst":     tessera.Worst(art.Findings),
+		"verdict":   verdict,
+		"truncated": truncated,
+		"deep":      r.URL.Query().Get("deep") != "0",
+	})
+}
+
+// mergeFindings appends the walk's findings, dropping any the parse already
+// reported for the same place. The overlap is deliberate — the parser reads a
+// safetensors header to describe the model and the walker reads it again
+// because it cannot assume the parser ran — so without this one defect would be
+// counted twice and the artifact would score worse for no reason.
+func mergeFindings(parsed, walked []tessera.Finding) []tessera.Finding {
+	seen := make(map[string]bool, len(parsed))
+	for _, f := range parsed {
+		seen[f.ID+"\x00"+f.Location] = true
+	}
+	for _, f := range walked {
+		key := f.ID + "\x00" + f.Location
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		parsed = append(parsed, f)
+	}
+	return parsed
+}
+
+// tally counts findings by severity, drift separately, because the gate treats
+// drift separately.
+func tally(findings []tessera.Finding, driftOnly bool) tessera.SeverityCounts {
+	var c tessera.SeverityCounts
+	for _, f := range findings {
+		if (f.Category == "drift") != driftOnly {
+			continue
+		}
+		switch f.Severity {
+		case tessera.SeverityCritical:
+			c.Critical++
+		case tessera.SeverityHigh:
+			c.High++
+		case tessera.SeverityMedium:
+			c.Medium++
+		case tessera.SeverityLow:
+			c.Low++
+		default:
+			c.Unknown++
+		}
+	}
+	return c
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+// handleCoverage reports how far a model goes toward a published
+// minimum-elements standard.
+//
+// This is the view a regulated buyer actually wants, and it is the one that has
+// to be honest: the elements no static parse can supply are shown alongside the
+// ones it fills, with their reasons, rather than being quietly dropped to
+// flatter the total.
+func (s *Server) handleCoverage(w http.ResponseWriter, r *http.Request) {
+	target, err := s.resolve(r.URL.Query().Get("path"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	standard := r.URL.Query().Get("standard")
+	if standard == "" {
+		standard = "g7"
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	if err := s.acquire(ctx); err != nil {
+		return
+	}
+	defer s.release()
+
+	rep, err := tessera.Coverage(ctx, standard, target)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, rep)
+}
+
+// handleBOM returns a rendered bill of materials as a download.
+func (s *Server) handleBOM(w http.ResponseWriter, r *http.Request) {
+	target, err := s.resolve(r.URL.Query().Get("path"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	format := r.URL.Query().Get("format")
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	if err := s.acquire(ctx); err != nil {
+		return
+	}
+	defer s.release()
+
+	art, err := tessera.Analyze(ctx, target)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+
+	// Reproducible by construction: the BOM is stamped from the artifact's own
+	// bytes, not the wall clock, so downloading twice yields the same document.
+	at := time.Unix(0, 0).UTC()
+	if info, err := statFile(target); err == nil {
+		at = info.ModTime()
+	}
+
+	var (
+		data []byte
+		ext  string
+	)
+	switch format {
+	case "spdx":
+		data, err = tessera.SPDX(art, at)
+		ext = ".spdx.json"
+	case "sarif":
+		data, err = tessera.SARIF(art, at)
+		ext = ".sarif.json"
+	case "cyclonedx-1.7":
+		data, err = tessera.CycloneDXVersion(art, at, tessera.CycloneDX17)
+		ext = ".cdx.json"
+	default:
+		data, err = tessera.CycloneDX(art, at)
+		ext = ".cdx.json"
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	name := sanitize(art.Identity.Name) + ext
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
+	w.Write(data)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	enc.Encode(v)
+}
+
+// writeErr reports a failure without echoing the underlying error.
+//
+// The errors that reach here are os.PathError values carrying the absolute path
+// of the served directory, which would tell a browser the host's username and
+// directory layout — exactly the reconnaissance an attacker wants before aiming
+// a traversal. The client gets the category; the detail stays on this side.
+func writeErr(w http.ResponseWriter, code int, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	msg := "request failed"
+	switch code {
+	case http.StatusBadRequest:
+		msg = "path is not valid for this server"
+	case http.StatusUnprocessableEntity:
+		msg = "not a recognised model file"
+	case http.StatusNotFound:
+		msg = "not found"
+	}
+	_ = err // deliberately not surfaced to the client
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func sanitize(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "model"
+	}
+	return out
+}

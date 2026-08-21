@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -55,8 +56,18 @@ func runScan(args []string) int {
 	ctx := context.Background()
 	artifact, err := tessera.Analyze(ctx, path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tessera scan: %v\n", err)
-		return exitError
+		// Nothing parseable here is not the end of the scan. A directory of
+		// PyTorch pickles has no GGUF, safetensors or ONNX file to open, and is
+		// exactly the case where the walk for executable formats matters most —
+		// refusing to look would report nothing about the most dangerous shape
+		// an artifact takes.
+		if !errors.Is(err, tessera.ErrUnrecognized) || *shallow {
+			fmt.Fprintf(os.Stderr, "tessera scan: %v\n", err)
+			return exitError
+		}
+		artifact = &tessera.Artifact{}
+		fmt.Fprintf(os.Stderr,
+			"no gguf, safetensors or onnx file here; walking for executable formats only\n")
 	}
 
 	// The deep walk is on by default here, unlike `inspect`. This command is

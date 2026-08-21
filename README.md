@@ -1,11 +1,88 @@
 # Tessera
 
-**Offline AI bill-of-materials generator for model files.** Tessera reads a
-local **GGUF**, **safetensors**, or **ONNX** file — off disk, no framework, no
-network — and emits a normalized bill of materials in both **CycloneDX
-(1.6 or 1.7)** and **SPDX 3.0.1** from a single parse, with the security findings
-the metadata discloses attached to the same document and to a **SARIF 2.1.0**
-report for code scanning.
+**An AI Bill of Materials you can prove.**
+
+Tessera reads a model artifact off disk — **GGUF**, **safetensors**, **ONNX**,
+and the pickle, Keras, SavedModel and archive formats that sit beside them —
+and produces an AIBOM in **CycloneDX 1.6/1.7** and **SPDX 3.0.1** from a single
+parse, with the security findings attached to the same document and to a
+**SARIF 2.1.0** report.
+
+Then it does the two things a bill of materials is usually missing:
+
+- **Signs it**, with a hybrid post-quantum signature (ML-DSA-87 and ECDSA P-384,
+  both required), so the document has an author.
+- **Re-derives every claim from the bytes**, so the document can be checked
+  against the artifact months later and shown to be still true — or shown not
+  to be.
+
+A signed AIBOM that has drifted from its artifact is a cryptographically
+impeccable lie. That is the gap this closes.
+
+No framework, no network, no cluster. The core has **zero third-party
+dependencies**, pinned by a test.
+
+```bash
+# One command: parse, walk, document, judge
+tessera scan ./model-dir --out ./boms
+
+# An attested AIBOM: signed, and bound to the artifact digest
+tessera-sign attest ./model-dir --key signing.key --out ./boms
+
+# Months later, on someone else's machine
+tessera-sign verify-attestation boms/model.cdx.json.att.json \
+  --public signing.pub --artifact ./model-dir
+```
+
+```
+signature verified (hybrid-mldsa87-ecdsap384-sha384), signed 2026-08-20T…
+
+claims re-derived from ./model-dir:
+  [pass] llama
+  [pass] 36e67e11982272fd…
+  [pass] 525336576
+  [pass] Meta-Llama-3-8B-Instruct
+  [pass] Q4_K_M
+
+VERIFIED: signed by the named key, and still true of this artifact
+```
+
+## The interface
+
+`tessera-studio` serves a local interface over the same library — the verdict
+first, then the evidence for it. Findings collapse, filter by severity and
+search; coverage shows what the artifact supplies against each standard. An
+analysis has its own URL, so a result can be linked to.
+
+![A quarantined model: two Critical findings, risk 95](docs/screenshots/quarantined.png)
+
+Light and dark both, and it runs at phone width:
+
+![A clean model: approved at risk 0](docs/screenshots/approved.png)
+
+Nothing is fetched from anywhere — no fonts, no scripts, no styles — because
+this runs inside enclaves with no egress.
+
+## Meeting the minimum elements
+
+Government buyers increasingly require an AIBOM against a published list, so
+Tessera reports its own coverage rather than asserting conformance:
+
+| Standard | Elements |
+|---|---|
+| **CISA/NSA/FBI 2026 Minimum Elements** (29 Jul 2026, replaces NTIA 2021) | 17 data fields + 6 practices |
+| **G7 SBOM for AI — Minimum Elements** (May 2026) | full table |
+| **CERT-In Technical Guidelines v2.0 §9** — AIBOM | full table |
+| **BSI TR-03183-2** — the operative CRA SBOM specification | required fields |
+
+```bash
+tessera coverage ./model-dir --standard cisa-2026
+```
+
+It reports which rows the artifact fills, which it could fill and did not, and
+which **no static parse can ever fill** — each with the reason. A tool that
+quietly dropped the unfillable rows would report a better number and tell you
+less.
 
 It is named for the *tessera hospitalis*, a token two parties broke in half so
 either could later prove the other's provenance. That is the job: turn the bytes

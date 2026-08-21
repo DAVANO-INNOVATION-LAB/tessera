@@ -1,7 +1,5 @@
 bin/
-dist/
 *.tsb
 *.tsb.sig
 signing.key
 signing.pub
-cover.out

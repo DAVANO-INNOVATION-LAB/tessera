@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tessera-studio",
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", "./cmd/tessera-studio", "--addr", "127.0.0.1:7777", "/tmp/tessera-demo"],
+      "port": 7777
+    }
+  ]
+}

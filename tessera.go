@@ -270,3 +270,9 @@ func CoverageStandards() []string {
 	}
 	return out
 }
+
+// ErrUnrecognized reports that nothing at the given path can be parsed as a
+// model. Callers that also walk for executable formats should treat it as a
+// reason to continue rather than to stop: a directory of PyTorch pickles has no
+// parseable model file and is exactly where the walk earns its keep.
+var ErrUnrecognized = parse.ErrUnrecognized
