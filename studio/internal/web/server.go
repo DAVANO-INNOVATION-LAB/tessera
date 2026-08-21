@@ -13,6 +13,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/studio/internal/store"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -44,6 +45,10 @@ type Server struct {
 	// is only permitted on a loopback bind — see Auth.CheckBind.
 	Auth Auth
 
+	// Store persists connections and settings. Nil means the interface runs
+	// without configuration, which is the right default for a one-off scan.
+	Store *store.Store
+
 	// slots limits concurrent analyses; created lazily on first use.
 	slotsOnce sync.Once
 	slots     chan struct{}
@@ -71,6 +76,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/bom", s.handleBOM)
 	mux.HandleFunc("GET /api/coverage", s.handleCoverage)
 	mux.HandleFunc("GET /api/whoami", s.handleWhoAmI)
+
+	// Configuration. Every one of these sits inside the authenticated mux: an
+	// anonymous caller must not be able to read connection endpoints, still
+	// less disable sign-in.
+	// Methods are explicit: a methodless pattern is broader than "GET /" and
+	// Go's mux refuses the pair rather than guessing which wins.
+	mux.HandleFunc("GET /api/connections", s.handleConnections)
+	mux.HandleFunc("POST /api/connections", s.handleConnections)
+	mux.HandleFunc("DELETE /api/connections/{id}", s.handleConnection)
+	mux.HandleFunc("DELETE /api/connections/{id}/secret", s.handleConnectionSecret)
+	mux.HandleFunc("POST /api/connections/{id}/test", s.handleConnectionTest)
+	mux.HandleFunc("GET /api/settings/auth", s.handleAuthSettings)
+	mux.HandleFunc("PUT /api/settings/auth", s.handleAuthSettings)
+	mux.HandleFunc("GET /api/snapshot", s.handleSnapshot)
+	mux.HandleFunc("POST /api/restore", s.handleRestore)
 
 	// The sign-in endpoints sit outside the authentication wrapper: requiring
 	// a session to reach the page that establishes one is a loop.

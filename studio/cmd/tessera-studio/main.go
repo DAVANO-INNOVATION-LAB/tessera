@@ -29,6 +29,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/DAVANO-INNOVATION-LAB/tessera/studio/internal/store"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/studio/internal/web"
 )
 
@@ -38,6 +39,8 @@ var version = "dev"
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "address to listen on (loopback by default)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	configPath := flag.String("config", os.Getenv("TESSERA_CONFIG"),
+		"where to persist connections and settings (default: none, nothing is stored)")
 
 	authToken := flag.String("auth-token", os.Getenv("TESSERA_AUTH_TOKEN"),
 		"bearer token required on every request (or TESSERA_AUTH_TOKEN)")
@@ -143,7 +146,35 @@ on loopback unless told otherwise.
 		os.Exit(1)
 	}
 
-	srv := &web.Server{Root: root, Version: version, Auth: auth}
+	// No --config means nothing is persisted, which is the right default for a
+	// one-off scan: a tool that silently starts writing credentials to disk
+	// because it was run once is not a tool anyone should trust.
+	var cfgStore *store.Store
+	if *configPath != "" {
+		cfgStore, err = store.Open(*configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tessera-studio: %v\n", err)
+			os.Exit(1)
+		}
+		// Stored settings fill in only what the flags left unset, so a flag is
+		// always the stronger statement and a restart cannot be surprised by
+		// something typed into a browser weeks ago.
+		if sa := cfgStore.Auth(); auth.OIDC == nil && sa.OIDCIssuer != "" {
+			auth.OIDC = &web.OIDCConfig{
+				Issuer: sa.OIDCIssuer, ClientID: sa.OIDCClientID,
+				ClientSecret: sa.OIDCClientSecret, RedirectURL: sa.OIDCRedirectURL,
+				AllowedEmails: sa.AllowedEmails, AllowedDomains: sa.AllowedDomains,
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if derr := auth.OIDC.Discover(ctx); derr != nil {
+				fmt.Fprintf(os.Stderr, "tessera-studio: stored OIDC settings: %v\n", derr)
+				os.Exit(1)
+			}
+		}
+	}
+
+	srv := &web.Server{Root: root, Version: version, Auth: auth, Store: cfgStore}
 	httpSrv := &http.Server{
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,

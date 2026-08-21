@@ -241,11 +241,40 @@
     .pane{padding:1.1rem}
     .floc{display:none}
   }
+
+    /* ── settings ─────────────────────────────────────────────────────── */
+    .card{border:1px solid var(--line);border-radius:9px;background:var(--panel);
+      padding:.85rem 1rem;margin:.5rem 0}
+    .card h3{margin:0 0 .1rem;font-size:.92rem}
+    .card .meta{font-family:var(--mono);font-size:.72rem;color:var(--faint)}
+    .row2{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+    .grow{flex:1;min-width:0}
+    .field{display:flex;flex-direction:column;gap:.2rem;margin:.45rem 0}
+    .field label{font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;
+      text-transform:uppercase;color:var(--faint)}
+    .field input,.field select{font:inherit;font-size:.86rem;padding:.34rem .5rem;
+      border:1px solid var(--line);border-radius:6px;background:var(--panel-2);color:var(--ink)}
+    .field input:focus,.field select:focus{outline:none;border-color:var(--accent)}
+    .field .hint{font-size:.76rem;color:var(--faint)}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 .8rem}
+    @media (max-width:700px){.grid2{grid-template-columns:1fr}}
+    .btn{font-family:var(--mono);font-size:.74rem;padding:.3rem .7rem;
+      border:1px solid var(--line);border-radius:6px;color:var(--mute)}
+    .btn:hover{border-color:var(--accent);color:var(--accent)}
+    .btn.primary{border-color:var(--accent);color:var(--accent)}
+    .btn.danger:hover{border-color:var(--crit);color:var(--crit)}
+    .pill{font-family:var(--mono);font-size:.66rem;padding:.08rem .45rem;border-radius:999px}
+    .pill.ok{color:var(--accent);background:var(--accent-dim)}
+    .pill.bad{color:var(--crit);background:var(--crit-bg)}
+    .pill.unk{color:var(--faint);border:1px solid var(--line)}
+    .note{font-size:.8rem;color:var(--mute);margin:.4rem 0 0}
+    .warn{font-size:.8rem;color:var(--high);margin:.4rem 0 0}
 </style>
 
 <header>
   <span class="brand"><span class="dot">&#9672;</span>Tessera Studio</span>
   <span class="rootpath" id="root"></span>
+  <button class="iconbtn" id="nav-settings" title="Connections and settings">settings</button>
   <button class="iconbtn" id="theme" title="Switch theme">theme</button>
 </header>
 
@@ -587,6 +616,218 @@ function fmtNum(n) {
   if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
   if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
   return String(v);
+}
+
+/* ── settings: connections, authentication, backup ──────────────────── */
+//
+// Two rules the interface has to keep, because getting either wrong is a
+// credential incident rather than a bug:
+//
+//   1. A secret field is always blank on load. The server never sends one back,
+//      and blank on save means "unchanged" — so an edit that touches only a name
+//      cannot silently wipe a credential.
+//   2. A backup is redacted unless the operator explicitly asks otherwise, and
+//      the difference is stated on the button rather than buried in a setting.
+
+let settingsOpen = false;
+
+el('nav-settings').addEventListener('click', () => {
+  settingsOpen = !settingsOpen;
+  if (settingsOpen) renderSettings();
+  else if (current) analyse(current); else location.hash = '';
+});
+
+async function renderSettings() {
+  const pane = el('pane');
+  pane.innerHTML = '<h1>Settings</h1><div class="skel" style="width:50%"></div>';
+
+  let conns, auth;
+  try {
+    const [cr, ar] = await Promise.all([
+      fetch('/api/connections'), fetch('/api/settings/auth')]);
+    conns = await cr.json();
+    auth = await ar.json();
+  } catch (e) {
+    pane.innerHTML = '<h1>Settings</h1><div class="err">could not load settings</div>';
+    return;
+  }
+  if (conns.error) {
+    pane.innerHTML = `<h1>Settings</h1><div class="err">${esc(conns.error)}</div>
+      <p class="note">Start with <span class="mono">--config /path/to/config.json</span>
+      to store connections and settings.</p>`;
+    return;
+  }
+
+  const kinds = conns.kinds || [];
+  const list = conns.connections || [];
+
+  pane.innerHTML = `
+    <h1>Settings</h1>
+    <p class="sub">${esc(conns.configPath || '')}</p>
+
+    <h2>Connections <span class="count">${list.length}</span></h2>
+    <p class="hint">Where models come from. Secrets are stored on this machine
+      and never sent back to this page.</p>
+    <div id="conns">${list.map(connCard).join('') ||
+      '<p class="spin">No connections yet.</p>'}</div>
+
+    <div class="card">
+      <h3>Add a connection</h3>
+      <div class="grid2">
+        <div class="field"><label>name</label>
+          <input id="c-name" placeholder="prod-registry"></div>
+        <div class="field"><label>kind</label>
+          <select id="c-kind">${kinds.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join('')}</select></div>
+        <div class="field"><label>endpoint</label>
+          <input id="c-endpoint" placeholder="https://ghcr.io"></div>
+        <div class="field"><label>path or repository</label>
+          <input id="c-path" placeholder="org/models"></div>
+        <div class="field"><label>region</label>
+          <input id="c-region" placeholder="us-east-1"></div>
+        <div class="field"><label>username</label>
+          <input id="c-username"></div>
+        <div class="field"><label>secret or token</label>
+          <input id="c-secret" type="password" autocomplete="new-password">
+          <span class="hint">Stored on this machine. Never displayed again.</span></div>
+        <div class="field"><label>allow plain http</label>
+          <select id="c-insecure"><option value="">no</option><option value="1">yes</option></select>
+          <span class="hint">Only for a registry you control on a trusted network.</span></div>
+      </div>
+      <div class="row2"><button class="btn primary" id="c-save">Save connection</button>
+        <span id="c-msg" class="note"></span></div>
+    </div>
+
+    <h2>Authentication</h2>
+    <p class="hint">Currently <span class="mono">${esc(auth.activeMode || 'none')}</span>.
+      Changes here apply when the server restarts; a flag always wins over a
+      stored setting.</p>
+    <div class="card">
+      <div class="grid2">
+        <div class="field"><label>oidc issuer</label>
+          <input id="a-issuer" value="${esc(auth.settings?.oidcIssuer || '')}"
+            placeholder="https://login.example.com"></div>
+        <div class="field"><label>client id</label>
+          <input id="a-client" value="${esc(auth.settings?.oidcClientId || '')}"></div>
+        <div class="field"><label>client secret</label>
+          <input id="a-secret" type="password" autocomplete="new-password"
+            placeholder="${auth.oidcClientSecretSet ? 'stored — leave blank to keep' : ''}"></div>
+        <div class="field"><label>redirect url</label>
+          <input id="a-redirect" value="${esc(auth.settings?.oidcRedirectUrl || '')}"
+            placeholder="https://tessera.example.com/auth/callback"></div>
+        <div class="field"><label>allowed domains</label>
+          <input id="a-domains" value="${esc((auth.settings?.allowedDomains || []).join(', '))}"
+            placeholder="example.com"></div>
+        <div class="field"><label>allowed emails</label>
+          <input id="a-emails" value="${esc((auth.settings?.allowedEmails || []).join(', '))}"></div>
+      </div>
+      <p class="warn">Leaving both allow lists empty means anyone the provider
+        authenticates can sign in. Correct for a company issuer; wrong for a public one.</p>
+      <div class="row2"><button class="btn primary" id="a-save">Save authentication</button>
+        <span id="a-msg" class="note"></span></div>
+    </div>
+
+    <h2>Backup</h2>
+    <p class="hint">Export this configuration, or restore one. A redacted export
+      carries no credentials and cannot bring a connection back to life on its own.</p>
+    <div class="card">
+      <div class="row2">
+        <a class="btn" href="/api/snapshot">Export (redacted)</a>
+        <a class="btn danger" href="/api/snapshot?secrets=include">Export with secrets</a>
+        <label class="btn" style="cursor:pointer">Restore&hellip;
+          <input id="r-file" type="file" accept="application/json" style="display:none"></label>
+        <span id="r-msg" class="note"></span>
+      </div>
+      <p class="warn">An export with secrets is a credential file. It will end up
+        in object storage or a ticket unless you treat it as one.</p>
+    </div>`;
+
+  wireSettings();
+}
+
+function connCard(c) {
+  const chk = c.lastCheck;
+  const pill = !chk ? '<span class="pill unk">never tested</span>'
+    : chk.ok ? '<span class="pill ok">reachable</span>'
+             : '<span class="pill bad">failed</span>';
+  return `<div class="card" data-id="${esc(c.id)}">
+    <div class="row2">
+      <div class="grow"><h3>${esc(c.name)}</h3>
+        <div class="meta">${esc(c.kind)}${c.endpoint ? ' &middot; ' + esc(c.endpoint) : ''}</div></div>
+      ${pill}
+      <button class="btn" data-test="${esc(c.id)}">Test</button>
+      <button class="btn danger" data-del="${esc(c.id)}">Delete</button>
+    </div>
+    ${chk ? `<p class="note">${esc(chk.message || '')} <span class="mono">${esc(chk.at || '')}</span></p>` : ''}
+  </div>`;
+}
+
+function wireSettings() {
+  el('c-save').addEventListener('click', async () => {
+    const body = {
+      name: el('c-name').value.trim(),
+      kind: el('c-kind').value,
+      endpoint: el('c-endpoint').value.trim(),
+      path: el('c-path').value.trim(),
+      region: el('c-region').value.trim(),
+      username: el('c-username').value.trim(),
+      secret: el('c-secret').value,
+      insecure: el('c-insecure').value === '1',
+    };
+    const res = await fetch('/api/connections', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)});
+    const out = await res.json();
+    el('c-msg').textContent = out.error ? out.error : 'saved';
+    if (!out.error) renderSettings();
+  });
+
+  el('a-save').addEventListener('click', async () => {
+    const split = (v) => v.split(',').map(x => x.trim()).filter(Boolean);
+    const body = {
+      oidcIssuer: el('a-issuer').value.trim(),
+      oidcClientId: el('a-client').value.trim(),
+      oidcClientSecret: el('a-secret').value,
+      oidcRedirectUrl: el('a-redirect').value.trim(),
+      allowedDomains: split(el('a-domains').value),
+      allowedEmails: split(el('a-emails').value),
+    };
+    const res = await fetch('/api/settings/auth', {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)});
+    const out = await res.json();
+    el('a-msg').textContent = out.error ? out.error : 'saved — restart to apply';
+  });
+
+  el('r-file').addEventListener('change', async (ev) => {
+    const f = ev.target.files[0];
+    if (!f) return;
+    const res = await fetch('/api/restore', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: await f.text()});
+    const out = await res.json();
+    if (out.error) { el('r-msg').textContent = out.error; return; }
+    el('r-msg').textContent = out.missingSecrets?.length
+      ? `restored ${out.restored}; no credential for: ${out.missingSecrets.join(', ')}`
+      : `restored ${out.restored}`;
+    renderSettings();
+  });
+
+  el('pane').addEventListener('click', async (ev) => {
+    const t = ev.target.closest('[data-test]');
+    if (t) {
+      t.textContent = 'testing…';
+      const res = await fetch(`/api/connections/${encodeURIComponent(t.dataset.test)}/test`,
+        {method: 'POST'});
+      await res.json();
+      renderSettings();
+      return;
+    }
+    const d = ev.target.closest('[data-del]');
+    if (d) {
+      await fetch(`/api/connections/${encodeURIComponent(d.dataset.del)}`, {method: 'DELETE'});
+      renderSettings();
+    }
+  });
 }
 
 fetch('/api/browse?path=').then(r => r.json()).then(d => {
