@@ -92,10 +92,6 @@ of its own — so it embeds inside another program rather than being shelled out
 to. That is the difference that matters most if you are putting it inside
 something else, and it is pinned by tests rather than asserted.
 
-Related work worth knowing about: [`airom`](https://github.com/airomhq/airom)
-also parses local model binaries in Go and emits both formats, with a broader
-discovery surface across code, containers and Kubernetes.
-
 ## One analyser, four shapes
 
 The analyser is a library first. Everything else is a thin wrapper, so nothing
