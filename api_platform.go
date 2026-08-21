@@ -146,3 +146,15 @@ const (
 	StatusDetected = gate.StatusDetected
 	StatusUnknown  = gate.StatusUnknown
 )
+
+// Scanner output formats Ingest can read. Exported because a caller has to name
+// one, and an unrecognized format is an error rather than a guess — reading
+// Trivy's JSON as Grype's would produce a confidently wrong finding list.
+const (
+	FormatTessera    = ingest.FormatTessera
+	FormatClamAV     = ingest.FormatClamAV
+	FormatTrivyJSON  = ingest.FormatTrivyJSON
+	FormatGrypeJSON  = ingest.FormatGrypeJSON
+	FormatSyftSPDX   = ingest.FormatSyftSPDX
+	FormatTrufflehog = ingest.FormatTrufflehog
+)
