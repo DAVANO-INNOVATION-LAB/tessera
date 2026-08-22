@@ -49,6 +49,10 @@ type Server struct {
 	// without configuration, which is the right default for a one-off scan.
 	Store *store.Store
 
+	// History keeps scan results. Nil means nothing is kept, and every question
+	// that needs yesterday's answer becomes unanswerable — see internal/store.
+	History *store.History
+
 	// slots limits concurrent analyses; created lazily on first use.
 	slotsOnce sync.Once
 	slots     chan struct{}
@@ -89,6 +93,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/connections/{id}/test", s.handleConnectionTest)
 	mux.HandleFunc("GET /api/settings/auth", s.handleAuthSettings)
 	mux.HandleFunc("PUT /api/settings/auth", s.handleAuthSettings)
+	mux.HandleFunc("GET /api/assets", s.handleAssets)
+	mux.HandleFunc("GET /api/scans", s.handleScans)
+	mux.HandleFunc("GET /api/search", s.handleSearch)
+	mux.HandleFunc("GET /api/compare", s.handleCompare)
 	mux.HandleFunc("GET /api/snapshot", s.handleSnapshot)
 	mux.HandleFunc("POST /api/restore", s.handleRestore)
 
@@ -309,12 +317,22 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		Format: string(art.Format),
 	}, nil, nil, time.Now())
 
+	// Kept before the response is written, so a result a user saw is a result
+	// the history has. Recording after would leave a window where the two
+	// disagree, and history that occasionally misses a scan is worse than none
+	// — it looks complete.
+	var scanID string
+	if rec, err := recordScan(s.History, r.URL.Query().Get("path"), art, verdict, truncated); err == nil {
+		scanID = rec.ID
+	}
+
 	writeJSON(w, map[string]any{
 		"artifact":  art,
 		"worst":     tessera.Worst(art.Findings),
 		"verdict":   verdict,
 		"truncated": truncated,
 		"deep":      r.URL.Query().Get("deep") != "0",
+		"scanId":    scanID,
 	})
 }
 

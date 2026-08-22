@@ -174,7 +174,18 @@ on loopback unless told otherwise.
 		}
 	}
 
-	srv := &web.Server{Root: root, Version: version, Auth: auth, Store: cfgStore}
+	// History lives beside the config, so one --config gives both and one
+	// directory is the thing to back up.
+	var hist *store.History
+	if *configPath != "" {
+		hist, err = store.OpenHistory(filepath.Join(filepath.Dir(*configPath), "scans"))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tessera-studio: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	srv := &web.Server{Root: root, Version: version, Auth: auth, Store: cfgStore, History: hist}
 	httpSrv := &http.Server{
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,

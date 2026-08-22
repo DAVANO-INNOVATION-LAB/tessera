@@ -50,7 +50,7 @@ func SARIF(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) 
 				Text: f.Title,
 			},
 			FullDescription: sarifText{
-				Text: cmp.Or(f.Description, f.Title),
+				Text: describeWithTaxonomy(f),
 			},
 			DefaultConfiguration: sarifConfig{Level: sarifLevel(f.Severity)},
 			Properties: sarifRuleProps{
@@ -162,10 +162,23 @@ func severityRank(severity string) int {
 	return 4
 }
 
-// tagsFor gives a consumer something to filter on. The category is the useful
-// axis — a reviewer usually wants "show me the drift" rather than one rule.
+// tagsFor gives a consumer something to filter on.
+//
+// The CWE tag is the important one and the convention is not ours: GitHub code
+// scanning, Defender and most SARIF consumers read a tag of the form
+// "external/cwe/cwe-502" and render the weakness class from it. Emitting it is
+// what turns TESS-PICKLE-001 — meaningless outside this tool — into something a
+// security engineer can group, filter and route by on day one.
 func tagsFor(f model.Finding) []string {
 	tags := []string{"tessera"}
+	if c, ok := model.Classify(f.ID); ok {
+		if c.CWE != "" {
+			tags = append(tags, "external/cwe/cwe-"+c.CWE)
+		}
+		if c.ATLAS != "" {
+			tags = append(tags, "mitre-atlas/"+c.ATLAS)
+		}
+	}
 	if f.Category != "" {
 		tags = append(tags, f.Category)
 	}
@@ -292,4 +305,29 @@ type sarifArtifactEntry struct {
 type sarifInvocation struct {
 	ExecutionSuccessful bool   `json:"executionSuccessful"`
 	EndTimeUTC          string `json:"endTimeUtc,omitempty"`
+}
+
+// describeWithTaxonomy appends the weakness class to a finding's description.
+//
+// A reader who has never met this tool needs one line telling them what class
+// of problem they are looking at. Putting it in the description rather than only
+// in a tag means it survives into consumers that render text and ignore tags,
+// which is most of them.
+func describeWithTaxonomy(f model.Finding) string {
+	base := cmp.Or(f.Description, f.Title)
+	c, ok := model.Classify(f.ID)
+	if !ok {
+		return base
+	}
+	var extra []string
+	if c.CWE != "" {
+		extra = append(extra, "CWE-"+c.CWE+": "+c.CWEName)
+	}
+	if c.ATLAS != "" {
+		extra = append(extra, "MITRE ATLAS "+c.ATLAS+": "+c.ATLASName)
+	}
+	if len(extra) == 0 {
+		return base
+	}
+	return base + " [" + strings.Join(extra, "; ") + "]"
 }

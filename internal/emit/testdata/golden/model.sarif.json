@@ -17,7 +17,7 @@
                 "text": "Executable chat template"
               },
               "fullDescription": {
-                "text": "jinja control logic"
+                "text": "jinja control logic [CWE-94: Code Injection; MITRE ATLAS AML.T0011: User Execution: Unsafe ML Artifacts]"
               },
               "defaultConfiguration": {
                 "level": "error"
@@ -25,6 +25,8 @@
               "properties": {
                 "tags": [
                   "tessera",
+                  "external/cwe/cwe-94",
+                  "mitre-atlas/AML.T0011",
                   "model"
                 ],
                 "security-severity": "7.5"

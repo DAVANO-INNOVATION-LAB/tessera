@@ -125,3 +125,15 @@ const (
 	RoleShard        = model.RoleShard
 	RoleExternalData = model.RoleExternalData
 )
+
+// Classification is what a finding maps onto outside this tool: a CWE weakness
+// class, and a MITRE ATLAS technique where one genuinely applies.
+type Classification = model.Classification
+
+// Classify returns the taxonomy entry for a finding id, and whether one exists.
+//
+// Not every finding has one, and that is deliberate. A file that could not be
+// read or a licence that was not declared is an operational fact rather than a
+// weakness, and giving it a CWE would corrupt any downstream aggregation that
+// treats a CWE as a weakness class.
+func Classify(id string) (Classification, bool) { return model.Classify(id) }
