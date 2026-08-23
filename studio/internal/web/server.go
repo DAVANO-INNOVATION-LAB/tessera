@@ -16,6 +16,7 @@ import (
 	"github.com/DAVANO-INNOVATION-LAB/tessera/studio/internal/store"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -93,6 +94,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/connections/{id}/test", s.handleConnectionTest)
 	mux.HandleFunc("GET /api/settings/auth", s.handleAuthSettings)
 	mux.HandleFunc("PUT /api/settings/auth", s.handleAuthSettings)
+	mux.HandleFunc("GET /api/harden/plan", s.handleHardenPlan)
+	mux.HandleFunc("POST /api/harden/apply", s.handleHardenApply)
 	mux.HandleFunc("GET /api/taxonomy", s.handleTaxonomy)
 	mux.HandleFunc("GET /api/suppressions", s.handleSuppressions)
 	mux.HandleFunc("POST /api/suppressions", s.handleSuppressions)
@@ -295,31 +298,15 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	parsed := len(art.Findings)
 	truncated := false
 	if r.URL.Query().Get("deep") != "0" {
-		if rep, err := tessera.Inspect(ctx, filepath.Dir(target)); err == nil {
+		if rep, err := tessera.Inspect(ctx, walkRoot(target)); err == nil {
 			art.Findings = mergeFindings(art.Findings, rep.Findings)
 			truncated = rep.Truncated
 		}
 	}
 	walked := art.Findings[min(parsed, len(art.Findings)):]
 
-	results := []tessera.ScannerResult{{
-		Scanner:    "tessera",
-		Status:     tessera.ScannerStatusFor(parsed),
-		Findings:   int32(parsed),
-		Severities: tally(art.Findings[:parsed], false),
-		Drift:      tally(art.Findings[:parsed], true),
-		Produced:   boolPtr(true),
-	}, {
-		Scanner:    "model-inspector",
-		Status:     tessera.ScannerStatusFor(len(walked)),
-		Findings:   int32(len(walked)),
-		Severities: tally(walked, false),
-	}}
-	verdict := tessera.Gate(results, tessera.GateArtifact{
-		URI:    r.URL.Query().Get("path"),
-		Digest: art.PrimaryFile().SHA256,
-		Format: string(art.Format),
-	}, nil, nil, time.Now())
+	verdict := gateFor(r.URL.Query().Get("path"), art, parsed)
+	_ = walked
 
 	// Kept before the response is written, so a result a user saw is a result
 	// the history has. Recording after would leave a window where the two
@@ -620,4 +607,53 @@ func writeJSONStatus(w http.ResponseWriter, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
+}
+
+// walkRoot is the directory the deep walk should cover.
+//
+// filepath.Dir on a directory returns its *parent*, so passing it here made a
+// scan of one model directory walk every sibling — and attribute their findings
+// to the model being viewed. A hardened copy came back carrying the pickle from
+// the original next to it, which is the worst possible way for this to be wrong:
+// remediation appearing not to work when it had.
+func walkRoot(target string) string {
+	if info, err := os.Stat(target); err == nil && info.IsDir() {
+		return target
+	}
+	return filepath.Dir(target)
+}
+
+// gateFor runs the policy gate over an analysed artifact.
+//
+// Extracted so the verdict shown on a hardened copy is produced by the same
+// code as the verdict shown when that copy is opened. Two call sites computing
+// a verdict separately would eventually disagree, and "Approved" here followed
+// by "Quarantined" one click later destroys trust in both numbers.
+//
+// parsed is how many of the findings came from the model file itself; the rest
+// came from walking the directory beside it, and the gate weighs the two
+// differently.
+func gateFor(uri string, art *tessera.Artifact, parsed int) tessera.GateResult {
+	if parsed > len(art.Findings) {
+		parsed = len(art.Findings)
+	}
+	self, walked := art.Findings[:parsed], art.Findings[parsed:]
+	results := []tessera.ScannerResult{{
+		Scanner:    "tessera",
+		Status:     tessera.ScannerStatusFor(len(self)),
+		Findings:   int32(len(self)),
+		Severities: tally(self, false),
+		Drift:      tally(self, true),
+		Produced:   boolPtr(true),
+	}, {
+		Scanner:    "model-inspector",
+		Status:     tessera.ScannerStatusFor(len(walked)),
+		Findings:   int32(len(walked)),
+		Severities: tally(walked, false),
+	}}
+	return tessera.Gate(results, tessera.GateArtifact{
+		URI:    uri,
+		Digest: art.PrimaryFile().SHA256,
+		Format: string(art.Format),
+	}, nil, nil, time.Now())
 }

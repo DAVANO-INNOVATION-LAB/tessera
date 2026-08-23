@@ -328,3 +328,26 @@ func TestIndexServesTheEmbeddedUI(t *testing.T) {
 		t.Errorf("/nope returned %d, want 404", got)
 	}
 }
+
+// filepath.Dir on a directory returns its parent, so a scan of one model
+// directory used to walk every sibling and attribute their findings to the
+// model being viewed. A hardened copy came back carrying the pickle from the
+// original beside it — remediation appearing not to work when it had.
+func TestWalkRootDoesNotEscapeIntoSiblings(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "model-dir")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := walkRoot(target); got != target {
+		t.Errorf("walkRoot(dir) = %q, want the directory itself, not %q", got, filepath.Dir(target))
+	}
+
+	file := filepath.Join(target, "model.gguf")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := walkRoot(file); got != target {
+		t.Errorf("walkRoot(file) = %q, want its containing directory", got)
+	}
+}

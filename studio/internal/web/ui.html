@@ -305,6 +305,28 @@
     .modal-card{background:var(--panel);border:1px solid var(--line-2);border-radius:10px;
       padding:1rem 1.1rem;max-width:34rem;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.35)}
     .modal-card h3{margin:0 0 .3rem;font-size:1rem}
+
+    /* Hardening. The action list is the safety mechanism, so it is the part of
+       the dialog that gets the room — not the Apply button. */
+    .hard-card{max-width:44rem;max-height:86vh;display:flex;flex-direction:column}
+    .hard-body{overflow-y:auto;margin:.5rem 0;padding-right:.2rem}
+    .hact{display:flex;gap:.55rem;align-items:flex-start;padding:.55rem .6rem;
+      border:1px solid var(--line);border-radius:7px;margin-bottom:.4rem;
+      background:var(--bg)}
+    .hact input{margin-top:.2rem;flex:none}
+    .hact .grow{min-width:0}
+    .hact .kind{font-family:var(--mono);font-size:.64rem;color:var(--faint);
+      border:1px solid var(--line);border-radius:4px;padding:0 .3rem}
+    .hact .what{font-family:var(--mono);font-size:.78rem;word-break:break-all}
+    .hact .why{font-size:.78rem;color:var(--dim);margin:.2rem 0 0}
+    .hact .conseq{font-size:.74rem;color:var(--faint);margin:.15rem 0 0}
+    .hrefuse{border-left:2px solid var(--warn);padding-left:.6rem;margin-bottom:.5rem}
+    .hrefuse .what{font-family:var(--mono);font-size:.75rem}
+    .hrefuse p{font-size:.76rem;color:var(--dim);margin:.15rem 0 0}
+    .hresult{border:1px solid var(--line-2);border-radius:8px;padding:.6rem .7rem;
+      margin-top:.5rem}
+    .hresult .big{font-size:1.5rem;font-family:var(--mono)}
+    .hresult .arrow{color:var(--faint);margin:0 .4rem}
 </style>
 
 <header>
@@ -517,6 +539,7 @@ function render() {
     <div class="cov" id="cov"><div class="skel" style="width:60%"></div></div>
 
     <div class="actions">
+      ${total ? `<button class="btn primary" data-harden="${esc(path)}">Harden a copy</button>` : ''}
       <a href="/api/bom?format=cyclonedx&path=${encodeURIComponent(path)}">CycloneDX 1.6</a>
       <a href="/api/bom?format=cyclonedx-1.7&path=${encodeURIComponent(path)}">CycloneDX 1.7</a>
       <a href="/api/bom?format=spdx&path=${encodeURIComponent(path)}">SPDX 3.0.1</a>
@@ -969,6 +992,189 @@ function openAcceptDialog(findingId, location) {
     if (out.error) { dlg.querySelector('#s-msg').textContent = out.error; return; }
     close();
     if (current) analyse(current);
+  });
+}
+
+/* ── hardening ───────────────────────────────────────────────────────── */
+//
+// Hardening writes a *copy*. The original is never touched, which is the whole
+// reason this is safe to offer from a browser button: the worst outcome of a
+// mistake here is a directory nobody wanted, not a model somebody needed.
+//
+// The dialog leads with the action list rather than the button. Each row says
+// what it will do, why, and — where it costs something — what stops working
+// afterwards. Every row is a checkbox, because the tool proposing a change is
+// not the same as the operator agreeing to it.
+//
+// Refusals are shown, not hidden. A remediation tool that silently declines
+// half the findings reads as a tool that fixed everything it could see, and the
+// findings it would not touch are exactly the ones somebody has to handle by
+// hand.
+
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-harden]');
+  if (!b) return;
+  ev.preventDefault();
+  openHardenDialog(b.dataset.harden);
+});
+
+const KIND_LABEL = {
+  'remove-file': 'delete',
+  'config-flag': 'set flag',
+  'config-key': 'remove key',
+  'remove-link': 'drop link',
+};
+
+async function openHardenDialog(path) {
+  const dlg = document.createElement('div');
+  dlg.className = 'modal';
+  dlg.innerHTML = `<div class="modal-card hard-card">
+    <h3>Harden a copy</h3>
+    <p class="note">Reading the artifact and working out what can be fixed
+      without breaking it&hellip;</p>
+    <div class="hard-body"><div class="skel" style="width:70%"></div>
+      <div class="skel" style="width:52%"></div></div>
+    <div class="row2"><button class="btn" id="h-cancel">Cancel</button></div>
+  </div>`;
+  document.body.appendChild(dlg);
+  const close = () => dlg.remove();
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); });
+  dlg.querySelector('#h-cancel').addEventListener('click', close);
+
+  let plan;
+  try {
+    const res = await fetch('/api/harden/plan?path=' + encodeURIComponent(path));
+    plan = await res.json();
+  } catch (e) {
+    plan = { error: 'could not reach the server' };
+  }
+  if (!dlg.isConnected) return;
+  if (plan.error) {
+    dlg.querySelector('.hard-body').innerHTML = `<p class="err">${esc(plan.error)}</p>`;
+    return;
+  }
+  renderHardenPlan(dlg, path, plan);
+}
+
+function renderHardenPlan(dlg, path, plan) {
+  const actions = plan.actions || [];
+  const refusals = plan.refusals || [];
+  const dest = path.replace(/\/+$/, '') + '-hardened';
+
+  // Nothing to do is a real answer and deserves saying plainly, rather than an
+  // empty list under an Apply button that would do nothing.
+  const nothing = !actions.length;
+
+  dlg.querySelector('.modal-card').innerHTML = `
+    <h3>Harden a copy</h3>
+    <p class="note">The original is never modified. Everything below is applied
+      to a new copy, which is re-scanned so you can see what changed.</p>
+    <div class="hard-body">
+      ${nothing ? `<p class="note">Nothing here can be fixed by rewriting files.
+        ${refusals.length ? 'The findings below need a decision a tool should not make for you.'
+                          : ''}</p>` : `
+        <p class="lbl">Will do &mdash; ${actions.length}</p>
+        ${actions.map((a, i) => `
+          <label class="hact">
+            <input type="checkbox" data-i="${i}" ${a.selected === false ? '' : 'checked'}>
+            <span class="grow">
+              <span class="kind">${esc(KIND_LABEL[a.kind] || a.kind)}</span>
+              <span class="what">${esc(a.path)}${a.key ? ' · ' + esc(a.key) : ''}</span>
+              ${a.finding ? `<span class="tax">${esc(a.finding)}</span>` : ''}
+              <p class="why">${esc(a.why)}</p>
+              ${a.consequence ? `<p class="conseq">Cost: ${esc(a.consequence)}</p>` : ''}
+            </span>
+          </label>`).join('')}`}
+
+      ${refusals.length ? `
+        <p class="lbl" style="margin-top:.7rem">Will not do &mdash; ${refusals.length}</p>
+        ${refusals.map(a => `<div class="hrefuse">
+          <div class="what">${esc(a.finding || a.path)}</div>
+          <p>${esc(a.why)}</p>
+        </div>`).join('')}` : ''}
+    </div>
+
+    ${nothing ? '' : `<div class="field"><label>destination</label>
+      <input id="h-dest" value="${esc(dest)}">
+      <span class="hint">A new directory, inside the served root. It must not
+        already exist with files in it.</span></div>`}
+
+    <div class="row2" style="margin-top:.6rem">
+      ${nothing ? '' : '<button class="btn primary" id="h-ok">Apply to a copy</button>'}
+      <button class="btn" id="h-cancel">${nothing ? 'Close' : 'Cancel'}</button>
+      <span id="h-msg" class="note"></span>
+    </div>`;
+
+  const close = () => dlg.remove();
+  dlg.querySelector('#h-cancel').addEventListener('click', close);
+  if (nothing) return;
+
+  dlg.querySelector('#h-ok').addEventListener('click', async () => {
+    const chosen = [...dlg.querySelectorAll('.hact input:checked')]
+      .map(c => ({ ...actions[+c.dataset.i], selected: true }));
+    const msg = dlg.querySelector('#h-msg');
+    if (!chosen.length) { msg.textContent = 'Nothing selected.'; return; }
+
+    const btn = dlg.querySelector('#h-ok');
+    btn.disabled = true;
+    msg.textContent = 'writing the copy and re-scanning it…';
+
+    const res = await fetch('/api/harden/apply', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        path,
+        destination: dlg.querySelector('#h-dest').value,
+        actions: chosen,
+      })});
+    const out = await res.json();
+    if (out.error) { btn.disabled = false; msg.textContent = out.error; return; }
+    renderHardenResult(dlg, out);
+  });
+}
+
+// The result leads with the re-scan, not with "done". Applying a plan proves
+// nothing; the findings on the copy are the evidence, and the ones still there
+// are the point — they are what somebody still has to deal with.
+function renderHardenResult(dlg, res) {
+  const remaining = (res.remaining || []).slice().sort((x, y) => {
+    const d = rank(x.severity) - rank(y.severity);
+    return d || String(x.id).localeCompare(String(y.id));
+  });
+  const vclass = {Approved:'ok', ReviewRequired:'warn', Quarantined:'bad'}[res.verdict] || '';
+
+  dlg.querySelector('.modal-card').innerHTML = `
+    <h3>Hardened copy written</h3>
+    <p class="note"><span class="mono">${esc(res.destination)}</span></p>
+    <div class="hresult">
+      <div><span class="big">${esc(String(res.before))}</span>
+        <span class="arrow">&rarr;</span>
+        <span class="big">${esc(String(res.after))}</span>
+        <span class="note">findings, after re-scanning the copy</span></div>
+      ${res.verdict ? `<div style="margin-top:.35rem">
+        <span class="pill ${vclass}">${esc(res.verdict)}</span></div>` : ''}
+    </div>
+    <div class="hard-body">
+      <p class="lbl" style="margin-top:.6rem">Applied &mdash; ${(res.applied || []).length}</p>
+      ${(res.applied || []).map(a => `<div class="hrefuse" style="border-left-color:var(--ok)">
+        <div class="what">${esc(KIND_LABEL[a.kind] || a.kind)} · ${esc(a.path)}${
+          a.key ? ' · ' + esc(a.key) : ''}</div></div>`).join('')}
+
+      <p class="lbl" style="margin-top:.6rem">Still present &mdash; ${remaining.length}</p>
+      ${remaining.length ? remaining.map(f => `<div class="hrefuse">
+        <div class="what"><span class="pill s-${esc(f.severity)}">${esc(f.severity)}</span>
+          ${esc(f.id)} · ${esc(f.title)}</div>
+        ${f.location ? `<p>${esc(f.location)}</p>` : ''}
+      </div>`).join('') : '<p class="note">Nothing. The copy is clean.</p>'}
+    </div>
+    <div class="row2" style="margin-top:.6rem">
+      <button class="btn primary" id="h-open">Open the copy</button>
+      <button class="btn" id="h-cancel">Close</button>
+    </div>`;
+
+  dlg.querySelector('#h-cancel').addEventListener('click', () => dlg.remove());
+  dlg.querySelector('#h-open').addEventListener('click', () => {
+    dlg.remove();
+    analyse(res.destination);
   });
 }
 
