@@ -46,6 +46,12 @@ type (
 	HuggingFaceResolver = resolver.HuggingFaceResolver
 	MLflowResolver      = resolver.MLflowResolver
 	HTTPResolver        = resolver.HTTPResolver
+	// KubeflowResolver reads a model registry entry and follows it to wherever
+	// the bytes actually live. Re-exported like the rest so a caller assembling
+	// a restricted registry by hand — the air-gapped case — can include it;
+	// without the type, that caller could reach every backend except the
+	// registry that tells them which backend to use.
+	KubeflowResolver = resolver.KubeflowResolver
 )
 
 // NewRegistry returns a registry with every built-in resolver registered:
