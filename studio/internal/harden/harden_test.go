@@ -48,7 +48,7 @@ func TestOriginalIsNeverModified(t *testing.T) {
 
 	dest := filepath.Join(t.TempDir(), "hardened")
 	plan := PlanFor(src, art(tessera.Finding{ID: "TESS-PICKLE-001", Location: "evil.pkl"}))
-	if _, err := Apply(src, dest, plan); err != nil {
+	if _, err := Apply(src, dest, plan, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -67,15 +67,15 @@ func TestApplyRefusesDangerousDestinations(t *testing.T) {
 	src := t.TempDir()
 	write(t, src, "a", "x")
 
-	if _, err := Apply(src, src, Plan{}); err == nil {
+	if _, err := Apply(src, src, Plan{}, nil); err == nil {
 		t.Error("hardening in place was allowed")
 	}
-	if _, err := Apply(src, filepath.Join(src, "inner"), Plan{}); err == nil {
+	if _, err := Apply(src, filepath.Join(src, "inner"), Plan{}, nil); err == nil {
 		t.Error("a destination inside the source was allowed")
 	}
 	occupied := t.TempDir()
 	write(t, occupied, "existing", "data")
-	if _, err := Apply(src, occupied, Plan{}); err == nil {
+	if _, err := Apply(src, occupied, Plan{}, nil); err == nil {
 		t.Error("writing over a non-empty tree was allowed")
 	}
 }
@@ -91,7 +91,7 @@ func TestTrustRemoteCodeIsSetFalseNotRemoved(t *testing.T) {
 		tessera.Finding{ID: "TESS-HF-001", Location: "config.json"},
 		tessera.Finding{ID: "TESS-HF-002", Location: "config.json"},
 	))
-	if _, err := Apply(src, dest, plan); err != nil {
+	if _, err := Apply(src, dest, plan, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -128,7 +128,7 @@ func TestActionPathsCannotEscape(t *testing.T) {
 	plan := Plan{Actions: []Action{{
 		Kind: KindRemoveFile, Path: "../../../" + filepath.Base(outside), Selected: true}}}
 
-	if _, err := Apply(src, dest, plan); err == nil {
+	if _, err := Apply(src, dest, plan, nil); err == nil {
 		t.Error("an escaping action path was applied")
 	}
 	if _, err := os.Stat(outside); err != nil {
@@ -145,7 +145,7 @@ func TestSymlinksAreNotCarriedIntoTheCopy(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 	dest := filepath.Join(t.TempDir(), "out")
-	if _, err := Apply(src, dest, Plan{}); err != nil {
+	if _, err := Apply(src, dest, Plan{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(dest, "sneaky")); !os.IsNotExist(err) {
@@ -159,7 +159,7 @@ func TestExecutableBitIsDroppedOnCopy(t *testing.T) {
 	os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755)
 
 	dest := filepath.Join(t.TempDir(), "out")
-	if _, err := Apply(src, dest, Plan{}); err != nil {
+	if _, err := Apply(src, dest, Plan{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Join(dest, "run.sh"))

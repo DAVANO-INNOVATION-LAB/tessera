@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +58,21 @@ type ScanRecord struct {
 	// entry over a partial walk is not a clean artifact and the distinction
 	// has to survive into the record.
 	Truncated bool `json:"truncated,omitempty"`
+
+	// Hardened marks this artifact as a derivative this server produced.
+	//
+	// Set only by the hardening endpoint, never from anything read off disk.
+	// That is the whole point: a directory can contain a file claiming to be a
+	// hardening record, and treating that claim as fact would let anyone launder
+	// an untouched model into a trusted one by writing a JSON file next to it.
+	// This flag is the server's own memory of having done the work.
+	Hardened bool `json:"hardened,omitempty"`
+	// DerivedFrom is the digest of the artifact this was hardened from. Digest
+	// rather than path, because paths move and the lineage has to survive it.
+	DerivedFrom string `json:"derivedFrom,omitempty"`
+	// DerivedFromTarget is the source as the operator named it, kept only so a
+	// human sees something recognisable; the digest is what is authoritative.
+	DerivedFromTarget string `json:"derivedFromTarget,omitempty"`
 }
 
 // FindingRecord is a finding as history keeps it: enough to search, group and
@@ -94,6 +110,13 @@ type Asset struct {
 	LastSeen  string         `json:"lastSeen"`
 	ScanCount int            `json:"scanCount"`
 	Counts    map[string]int `json:"counts"`
+
+	// Hardened and DerivedFrom carry the derivation into the inventory, which is
+	// where the question "what is this and where did it come from" is actually
+	// asked.
+	Hardened          bool   `json:"hardened,omitempty"`
+	DerivedFrom       string `json:"derivedFrom,omitempty"`
+	DerivedFromTarget string `json:"derivedFromTarget,omitempty"`
 }
 
 // Diff is what changed between two scans of the same artifact.
@@ -148,6 +171,24 @@ func (h *History) Record(rec ScanRecord) (ScanRecord, error) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	// A second scan of the same target within the same second derives the same
+	// id, and the rename below would silently replace the earlier record. That
+	// is how a hardening record disappeared: applying a plan and then viewing
+	// the copy happen well inside one second, so the ordinary scan overwrote the
+	// one carrying the derivation. History that quietly drops entries is worse
+	// than none, because it still looks complete.
+	//
+	// Settled here, before marshalling, so a record's id field and its filename
+	// cannot disagree — Compare looks scans up by the id it read out of the
+	// file, and a mismatch would make a stored scan unaddressable.
+	base := rec.ID
+	for i := 1; i < 1000; i++ {
+		if _, err := os.Stat(filepath.Join(h.dir, rec.ID+".json")); os.IsNotExist(err) {
+			break
+		}
+		rec.ID = base + "-" + strconv.Itoa(i)
+	}
 
 	data, err := json.MarshalIndent(&rec, "", "  ")
 	if err != nil {
@@ -244,10 +285,21 @@ func (h *History) Assets() []Asset {
 				Format: s.Format, Verdict: s.Verdict, RiskScore: s.RiskScore,
 				Worst: s.Worst, FirstSeen: s.ScannedAt, LastSeen: s.ScannedAt,
 				ScanCount: 1, Counts: s.Counts,
+				Hardened: s.Hardened, DerivedFrom: s.DerivedFrom,
+				DerivedFromTarget: s.DerivedFromTarget,
 			}
 			continue
 		}
 		a.ScanCount++
+		// The derivation was recorded once, by the scan taken immediately after
+		// hardening. Every later scan of that copy is an ordinary scan carrying
+		// none, so it is latched rather than overwritten — otherwise a model
+		// would stop being hardened the moment somebody looked at it again.
+		if s.Hardened && !a.Hardened {
+			a.Hardened = true
+			a.DerivedFrom = s.DerivedFrom
+			a.DerivedFromTarget = s.DerivedFromTarget
+		}
 		if s.ScannedAt < a.FirstSeen {
 			a.FirstSeen = s.ScannedAt
 		}
@@ -361,4 +413,107 @@ func scanID(rec ScanRecord) string {
 	h := sha256.Sum256([]byte(rec.Digest + rec.Target + rec.ScannedAt))
 	stamp := strings.NewReplacer("-", "", ":", "").Replace(rec.ScannedAt)
 	return stamp + "-" + hex.EncodeToString(h[:4])
+}
+
+// Lineage is one artifact's place in a hardening chain.
+type Lineage struct {
+	Digest string `json:"digest"`
+	Target string `json:"target,omitempty"`
+	// Ancestors runs from the immediate source outwards, so the first entry is
+	// what this was hardened from and the last is the original nobody derived.
+	Ancestors []LineageNode `json:"ancestors,omitempty"`
+	// Descendants are the copies hardened from this one, newest first.
+	Descendants []LineageNode `json:"descendants,omitempty"`
+}
+
+// LineageNode is one artifact in a chain.
+type LineageNode struct {
+	Digest    string `json:"digest,omitempty"`
+	Target    string `json:"target"`
+	ModelName string `json:"modelName,omitempty"`
+	Verdict   string `json:"verdict,omitempty"`
+	RiskScore int32  `json:"riskScore"`
+	Findings  int    `json:"findings"`
+	Hardened  bool   `json:"hardened,omitempty"`
+	// Missing marks a link the history knows was there but has no scan for —
+	// the source was hardened, then its record was pruned or it was scanned on
+	// another machine. Naming the gap beats silently ending the chain, which
+	// would present a derivative as an original.
+	Missing bool `json:"missing,omitempty"`
+}
+
+// LineageFor walks the derivation chain around one artifact.
+//
+// This is what turns a pile of scans into a picture: which model this came
+// from, what it became, and how the risk moved along the way.
+//
+// Identified by digest **and** location, for a reason that is not obvious and
+// that a digest-only version got wrong. Hardening usually removes a file
+// *beside* the model — a pickle, a stray symlink — or edits a config, and none
+// of that changes the model file's own bytes. The hardened copy therefore
+// carries the same primary digest as the original it came from. Keyed on digest
+// alone, the two are one artifact: the original inherits its copy's "hardened"
+// label, and the chain points at itself.
+//
+// The digest is still what makes a link durable across a move; the pair is what
+// makes the two ends of that link distinguishable.
+func (h *History) LineageFor(digest, target string) Lineage {
+	out := Lineage{Digest: digest, Target: target}
+	if h == nil || digest == "" {
+		return out
+	}
+	assets := h.Assets()
+
+	key := func(digest, target string) string { return digest + "\x00" + target }
+	byKey := map[string]Asset{}
+	for _, a := range assets {
+		if a.Digest == "" {
+			continue
+		}
+		if _, seen := byKey[key(a.Digest, a.Target)]; !seen {
+			byKey[key(a.Digest, a.Target)] = a
+		}
+	}
+
+	node := func(a Asset) LineageNode {
+		total := 0
+		for _, n := range a.Counts {
+			total += n
+		}
+		return LineageNode{
+			Digest: a.Digest, Target: a.Target, ModelName: a.ModelName,
+			Verdict: a.Verdict, RiskScore: a.RiskScore, Findings: total,
+			Hardened: a.Hardened,
+		}
+	}
+
+	// Upwards. Bounded by the number of known artifacts and guarded against a
+	// cycle: a digest that somehow lists itself as an ancestor would otherwise
+	// spin here forever, and this runs inside a request.
+	seen := map[string]bool{key(digest, target): true}
+	cur, ok := byKey[key(digest, target)]
+	for ok && cur.Hardened && cur.DerivedFrom != "" {
+		pk := key(cur.DerivedFrom, cur.DerivedFromTarget)
+		if seen[pk] {
+			break
+		}
+		seen[pk] = true
+		parent, found := byKey[pk]
+		if !found {
+			out.Ancestors = append(out.Ancestors, LineageNode{
+				Digest: cur.DerivedFrom, Target: cur.DerivedFromTarget, Missing: true,
+			})
+			break
+		}
+		out.Ancestors = append(out.Ancestors, node(parent))
+		cur = parent
+	}
+
+	// Downwards, one level: everything hardened directly from this artifact.
+	for _, a := range assets {
+		if a.Hardened && a.DerivedFrom == digest && a.DerivedFromTarget == target {
+			out.Descendants = append(out.Descendants, node(a))
+		}
+	}
+	return out
 }

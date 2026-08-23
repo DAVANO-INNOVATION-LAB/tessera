@@ -77,8 +77,16 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 // The taxonomy is resolved here rather than at read time, so a record stays
 // searchable by CWE even if the mapping table later changes — a historical
 // record should say what was believed when it was written.
+// derivation marks a scan as the result of hardening another artifact. Passed
+// in at the point of writing rather than patched on afterwards, so a record is
+// never briefly on disk claiming to be an ordinary scan of a derived copy.
+type derivation struct {
+	From       string
+	FromTarget string
+}
+
 func recordScan(h *store.History, target string, art *tessera.Artifact,
-	verdict tessera.GateResult, truncated bool) (store.ScanRecord, error) {
+	verdict tessera.GateResult, truncated bool, der *derivation) (store.ScanRecord, error) {
 	if h == nil {
 		return store.ScanRecord{}, nil
 	}
@@ -103,6 +111,19 @@ func recordScan(h *store.History, target string, art *tessera.Artifact,
 		Worst:     tessera.Worst(art.Findings),
 		Findings:  fs,
 		Truncated: truncated,
+		Hardened:  der != nil,
+		DerivedFrom: func() string {
+			if der != nil {
+				return der.From
+			}
+			return ""
+		}(),
+		DerivedFromTarget: func() string {
+			if der != nil {
+				return der.FromTarget
+			}
+			return ""
+		}(),
 	})
 }
 

@@ -3,6 +3,7 @@ package store
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func hist(t *testing.T) *History {
@@ -202,5 +203,146 @@ func TestSameArtifactInTwoPlacesIsTwoAssets(t *testing.T) {
 	}
 	if !sawClean {
 		t.Error("the clean location was lost; both deployments must be visible")
+	}
+}
+
+// Two scans of the same target in the same second must both survive.
+//
+// The id is derived from digest, target and a second-precision timestamp, so a
+// rapid second scan produced the same id and the rename silently replaced the
+// first record. That is not a hypothetical: applying a hardening plan and then
+// viewing the copy happen well inside one second, and the ordinary scan
+// overwrote the record carrying the derivation — the hardened copy quietly
+// stopped being hardened.
+func TestTwoScansInTheSameSecondBothSurvive(t *testing.T) {
+	h, err := OpenHistory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := "2026-08-22T12:00:00Z"
+	first, err := h.Record(ScanRecord{
+		Target: "m", Digest: "d1", ScannedAt: stamp, Hardened: true, DerivedFrom: "src",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := h.Record(ScanRecord{Target: "m", Digest: "d1", ScannedAt: stamp})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == second.ID {
+		t.Fatal("both scans got the same id, so one overwrote the other")
+	}
+	if got := len(h.Scans()); got != 2 {
+		t.Fatalf("history holds %d scans, want 2", got)
+	}
+
+	// The id inside each file must match the file it was stored as, or Compare
+	// cannot address a scan it just listed.
+	for _, s := range h.Scans() {
+		if s.ID != first.ID && s.ID != second.ID {
+			t.Errorf("stored id %q matches neither returned id", s.ID)
+		}
+	}
+	if _, err := h.Compare(first.ID, second.ID); err != nil {
+		t.Errorf("a stored scan is unaddressable: %v", err)
+	}
+}
+
+// A hardened copy usually shares its source's primary digest, because hardening
+// removes a file beside the model rather than the model itself. The inventory
+// must keep them apart, and must not let the derivation bleed onto the source.
+func TestDerivationDoesNotBleedOntoTheSourceSharingItsDigest(t *testing.T) {
+	h, _ := OpenHistory(t.TempDir())
+	h.Record(ScanRecord{Target: "m", Digest: "same", ScannedAt: "2026-08-22T12:00:00Z"})
+	h.Record(ScanRecord{
+		Target: "m-hardened", Digest: "same", ScannedAt: "2026-08-22T12:00:01Z",
+		Hardened: true, DerivedFrom: "same", DerivedFromTarget: "m",
+	})
+
+	var src, copyAsset *Asset
+	for i, a := range h.Assets() {
+		switch a.Target {
+		case "m":
+			src = &h.Assets()[i]
+		case "m-hardened":
+			copyAsset = &h.Assets()[i]
+		}
+	}
+	if src == nil || copyAsset == nil {
+		t.Fatalf("expected two assets, got %d", len(h.Assets()))
+	}
+	if src.Hardened {
+		t.Error("the untouched source was labelled hardened because it shares a digest")
+	}
+	if !copyAsset.Hardened {
+		t.Error("the hardened copy lost its label")
+	}
+}
+
+// Re-scanning a hardened copy must not un-harden it. Only the scan taken right
+// after hardening carries the derivation; every later one is ordinary.
+func TestRescanningAHardenedCopyKeepsTheLabel(t *testing.T) {
+	h, _ := OpenHistory(t.TempDir())
+	h.Record(ScanRecord{
+		Target: "c", Digest: "d", ScannedAt: "2026-08-22T12:00:00Z",
+		Hardened: true, DerivedFrom: "parent", DerivedFromTarget: "p",
+	})
+	h.Record(ScanRecord{Target: "c", Digest: "d", ScannedAt: "2026-08-22T13:00:00Z"})
+
+	assets := h.Assets()
+	if len(assets) != 1 {
+		t.Fatalf("expected one asset, got %d", len(assets))
+	}
+	if !assets[0].Hardened || assets[0].DerivedFrom != "parent" {
+		t.Errorf("re-scanning erased the derivation: %+v", assets[0])
+	}
+}
+
+// The chain is walkable from either end, and a pruned ancestor is named as a
+// gap rather than silently ending the chain — which would present a derivative
+// as an original.
+func TestLineageWalksBothDirectionsAndNamesGaps(t *testing.T) {
+	h, _ := OpenHistory(t.TempDir())
+	h.Record(ScanRecord{Target: "a", Digest: "d1", ScannedAt: "2026-08-22T12:00:00Z"})
+	h.Record(ScanRecord{
+		Target: "b", Digest: "d2", ScannedAt: "2026-08-22T12:00:01Z",
+		Hardened: true, DerivedFrom: "d1", DerivedFromTarget: "a",
+	})
+
+	down := h.LineageFor("d1", "a")
+	if len(down.Descendants) != 1 || down.Descendants[0].Target != "b" {
+		t.Errorf("the original does not list what came from it: %+v", down.Descendants)
+	}
+	up := h.LineageFor("d2", "b")
+	if len(up.Ancestors) != 1 || up.Ancestors[0].Target != "a" {
+		t.Fatalf("the copy does not point back at its source: %+v", up.Ancestors)
+	}
+
+	// Now a copy whose source was never scanned here.
+	h.Record(ScanRecord{
+		Target: "orphan", Digest: "d3", ScannedAt: "2026-08-22T12:00:02Z",
+		Hardened: true, DerivedFrom: "gone", DerivedFromTarget: "elsewhere",
+	})
+	orph := h.LineageFor("d3", "orphan")
+	if len(orph.Ancestors) != 1 || !orph.Ancestors[0].Missing {
+		t.Errorf("a pruned ancestor was not reported as a gap: %+v", orph.Ancestors)
+	}
+}
+
+// A record naming itself as its own source must not spin the walk forever;
+// this runs inside a request.
+func TestLineageSurvivesASelfReferentialRecord(t *testing.T) {
+	h, _ := OpenHistory(t.TempDir())
+	h.Record(ScanRecord{
+		Target: "loop", Digest: "d", ScannedAt: "2026-08-22T12:00:00Z",
+		Hardened: true, DerivedFrom: "d", DerivedFromTarget: "loop",
+	})
+	done := make(chan struct{})
+	go func() { h.LineageFor("d", "loop"); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("LineageFor did not terminate on a self-referential record")
 	}
 }

@@ -96,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/settings/auth", s.handleAuthSettings)
 	mux.HandleFunc("GET /api/harden/plan", s.handleHardenPlan)
 	mux.HandleFunc("POST /api/harden/apply", s.handleHardenApply)
+	mux.HandleFunc("GET /api/lineage", s.handleLineage)
 	mux.HandleFunc("GET /api/taxonomy", s.handleTaxonomy)
 	mux.HandleFunc("GET /api/suppressions", s.handleSuppressions)
 	mux.HandleFunc("POST /api/suppressions", s.handleSuppressions)
@@ -313,7 +314,7 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	// disagree, and history that occasionally misses a scan is worse than none
 	// — it looks complete.
 	var scanID string
-	if rec, err := recordScan(s.History, r.URL.Query().Get("path"), art, verdict, truncated); err == nil {
+	if rec, err := recordScan(s.History, r.URL.Query().Get("path"), art, verdict, truncated, nil); err == nil {
 		scanID = rec.ID
 	}
 
@@ -348,6 +349,7 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		"artifact":  art,
 		"worst":     tessera.Worst(art.Findings),
 		"verdict":   verdict,
+		"hardened":  s.hardenedLabelFor(walkRoot(target), r.URL.Query().Get("path"), art.PrimaryFile().SHA256),
 		"truncated": truncated,
 		"deep":      r.URL.Query().Get("deep") != "0",
 		"scanId":    scanID,

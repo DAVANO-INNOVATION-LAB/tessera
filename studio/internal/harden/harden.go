@@ -101,6 +101,9 @@ type Result struct {
 	// than summarised, because "it worked" is a claim and these are evidence.
 	Remaining []tessera.Finding `json:"remaining"`
 	Verdict   string            `json:"verdict,omitempty"`
+	// Provenance is the record written into the copy, returned so an interface
+	// can show the derivation without reading the file back.
+	Provenance *Provenance `json:"provenance,omitempty"`
 }
 
 // PlanFor proposes actions for an analysed artifact.
@@ -213,7 +216,7 @@ func configPath(loc string) string {
 // The copy happens first and completely. Applying changes while copying would
 // leave a partially hardened tree if anything failed, and a partially hardened
 // artifact is one nobody can reason about.
-func Apply(src, dest string, plan Plan) (*Result, error) {
+func Apply(src, dest string, plan Plan, prov *Provenance) (*Result, error) {
 	if dest == "" {
 		return nil, fmt.Errorf("hardening needs a destination; the original is never modified")
 	}
@@ -248,6 +251,19 @@ func Apply(src, dest string, plan Plan) (*Result, error) {
 			return nil, fmt.Errorf("applying %s to %s: %w", a.Kind, a.Path, err)
 		}
 		res.Applied = append(res.Applied, a)
+	}
+
+	// The derivation is recorded inside the copy, so it stays answerable when
+	// the copy is moved somewhere this server cannot see. Written after the
+	// actions, and describing the ones that actually succeeded rather than the
+	// ones that were proposed.
+	if prov != nil {
+		prov.Applied = res.Applied
+		prov.Refused = plan.Refusals
+		if err := WriteProvenance(absdest, *prov); err != nil {
+			return nil, fmt.Errorf("recording provenance: %w", err)
+		}
+		res.Provenance = prov
 	}
 	return res, nil
 }
@@ -327,6 +343,12 @@ func copyTree(src, dest string) error {
 			return os.MkdirAll(target, 0o755)
 		case !info.Mode().IsRegular():
 			return nil // symlinks, devices and sockets are not carried over
+		case rel == ProvenanceFile:
+			// The source's own hardening record is not carried across. It
+			// describes the source, and a copy inheriting it would claim to be
+			// derived from its own grandparent. A fresh record is written after
+			// the actions; the chain is kept through its hardenedFrom field.
+			return nil
 		}
 		in, err := os.Open(p)
 		if err != nil {

@@ -8,6 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/DAVANO-INNOVATION-LAB/tessera/studio/internal/harden"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/studio/internal/store"
 )
 
 // hardenTestServer lays out a directory that has something worth hardening: a
@@ -157,5 +160,145 @@ func TestHardenApplyRequiresDestination(t *testing.T) {
 	})
 	if rec.Code == http.StatusOK {
 		t.Error("apply with no destination was accepted")
+	}
+}
+
+// hardenServerWithHistory gives the server somewhere to record derivations,
+// which is what separates a verified label from a claim.
+func hardenServerWithHistory(t *testing.T) *Server {
+	t.Helper()
+	s, _ := hardenTestServer(t)
+	h, err := store.OpenHistory(filepath.Join(t.TempDir(), "scans"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.History = h
+	return s
+}
+
+// The label a forger can mint by writing a file must not be the label the
+// server issues for work it did.
+//
+// This is the whole reason HardenedLabel has two booleans. A hardening record
+// is an ordinary file in an ordinary directory; anybody who can write a model
+// can write one beside it. If the badge came from the file, "hardened" would be
+// a property an attacker could grant to an untouched malicious model — turning
+// the mark meant to vouch for safety into a laundering mechanism.
+func TestForgedHardeningRecordIsNotVerified(t *testing.T) {
+	s := hardenServerWithHistory(t)
+
+	// A directory nobody hardened, carrying a record that says otherwise.
+	forged := filepath.Join(s.Root, "forged")
+	if err := os.MkdirAll(forged, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeModel(t, filepath.Join(forged, "model.safetensors"))
+	pkl := []byte("\x80\x02cos\nsystem\nq\x00X\x02\x00\x00\x00idq\x01\x85q\x02Rq\x03.")
+	os.WriteFile(filepath.Join(forged, "evil.pkl"), pkl, 0o644)
+	if err := harden.WriteProvenance(forged, harden.Provenance{
+		Source: harden.ProvenanceSource{Digest: "made-up", Path: "somewhere"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got struct {
+		Hardened *HardenedLabel `json:"hardened"`
+	}
+	rec := get(t, s, "/api/analyze?path=forged")
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Hardened == nil {
+		t.Fatal("the claim was dropped entirely; it should be reported as unverified")
+	}
+	if !got.Hardened.Claimed {
+		t.Error("the record in the directory was not noticed")
+	}
+	if got.Hardened.Verified {
+		t.Fatal("a record written by anyone was accepted as proof of hardening")
+	}
+	if got.Hardened.Note == "" {
+		t.Error("an unverified claim was shown without saying so")
+	}
+}
+
+// A copy this server actually hardened is verified, labelled, and mapped back
+// to what it came from.
+func TestHardenedCopyIsLabelledAndMappedToItsSource(t *testing.T) {
+	s := hardenServerWithHistory(t)
+
+	// Scan the original first, so history knows it.
+	get(t, s, "/api/analyze?path=m")
+
+	var plan struct {
+		Actions []map[string]any `json:"actions"`
+	}
+	json.Unmarshal(get(t, s, "/api/harden/plan?path=m").Body.Bytes(), &plan)
+	for _, a := range plan.Actions {
+		a["selected"] = true
+	}
+	rec := postJSON(t, s, "/api/harden/apply", map[string]any{
+		"path": "m", "destination": "m-hardened", "actions": plan.Actions,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		Hardened *HardenedLabel `json:"hardened"`
+		Artifact struct {
+			Files []struct {
+				SHA256 string `json:"sha256"`
+			} `json:"files"`
+		} `json:"artifact"`
+	}
+	body := get(t, s, "/api/analyze?path=m-hardened").Body.Bytes()
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Hardened == nil || !got.Hardened.Verified {
+		t.Fatalf("a copy this server hardened is not labelled verified: %+v", got.Hardened)
+	}
+	if got.Hardened.Source == nil || got.Hardened.Source.Digest == "" {
+		t.Fatal("the label does not say what the copy was derived from")
+	}
+	if len(got.Hardened.Applied) == 0 {
+		t.Error("the label does not say what was changed")
+	}
+
+	// And the lineage maps the copy back to the original by digest.
+	digest := got.Artifact.Files[0].SHA256
+	var lin store.Lineage
+	linBody := get(t, s, "/api/lineage?digest="+digest+"&path=m-hardened").Body.Bytes()
+	if err := json.Unmarshal(linBody, &lin); err != nil {
+		t.Fatal(err)
+	}
+	if len(lin.Ancestors) == 0 {
+		t.Fatalf("no ancestors for a hardened copy: %s", linBody)
+	}
+	if lin.Ancestors[0].Digest != got.Hardened.Source.Digest {
+		t.Errorf("lineage parent %q does not match the recorded source %q",
+			lin.Ancestors[0].Digest, got.Hardened.Source.Digest)
+	}
+
+	// The original, asked from the other end, knows what came from it.
+	var back store.Lineage
+	json.Unmarshal(get(t, s, "/api/lineage?digest="+
+		got.Hardened.Source.Digest+"&path=m").Body.Bytes(), &back)
+	if len(back.Descendants) == 0 {
+		t.Error("the original does not list the copy hardened from it")
+	}
+}
+
+// An ordinary model gets no label at all, rather than a "not hardened" badge on
+// every row in the inventory.
+func TestUnhardenedArtifactHasNoLabel(t *testing.T) {
+	s := hardenServerWithHistory(t)
+	var got struct {
+		Hardened *HardenedLabel `json:"hardened"`
+	}
+	json.Unmarshal(get(t, s, "/api/analyze?path=m").Body.Bytes(), &got)
+	if got.Hardened != nil {
+		t.Errorf("an untouched model was labelled: %+v", got.Hardened)
 	}
 }
