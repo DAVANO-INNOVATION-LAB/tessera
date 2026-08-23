@@ -16,18 +16,26 @@ No framework, no network, no cluster. Zero third-party dependencies.
 
 ## Install
 
-```bash
-docker run --rm -p 7777:7777 -v /path/to/models:/models:ro \
-  ghcr.io/davano-innovation-lab/tessera:latest
+In a workflow:
+
+```yaml
+- uses: DAVANO-INNOVATION-LAB/tessera@v1.0.2
+  with:
+    path: ./model-dir
+    fail-on: critical
 ```
 
-Or the binary:
+Signatures are verified before the binary runs, and findings upload as
+code-scanning alerts.
+
+Or locally:
 
 ```bash
 go install github.com/DAVANO-INNOVATION-LAB/tessera/cmd/tessera@latest
 ```
 
-Releases carry signed checksums for linux, macOS and Windows.
+Releases carry signed checksums for Linux, macOS and Windows. A container image
+is published to `ghcr.io/davano-innovation-lab/tessera`.
 
 ## Use
 
@@ -60,16 +68,40 @@ Signed with ML-DSA-87 *and* ECDSA P-384, both required. Verification checks the
 signature **and** re-derives every claim from the artifact — a signed document
 that has drifted from its bytes is a cryptographically impeccable lie.
 
+### Hardening
+
+A model can be hardened to a copy: the dangerous file removed, the unsafe flag
+turned off, the original left untouched. The copy records what was changed and
+what it came from, and that derivation travels into the bill of materials as
+CycloneDX pedigree and an SPDX `descendantOf` edge — so a derivative says what
+it was cut from, pinned by digest, rather than appearing to come from nowhere.
+
+Changes a tool should not make silently are refused with the reason, not
+performed quietly.
+
 ### The interface
 
 ```bash
 tessera-studio /path/to/models
 ```
 
-Browse models, read findings, download documents. A port reachable beyond the
-machine requires a token or OIDC; loopback needs neither.
+Browse models, read findings, harden a copy, download documents. A port
+reachable beyond the machine requires a token or OIDC; loopback needs neither.
 
 ![Tessera Studio](docs/screenshots/quarantined.png)
+
+## Measured
+
+Accuracy is graded against a labelled corpus in this repository, a third of it
+traps — cases that look dangerous and are not, because a benchmark that only
+measures what a tool finds rewards a tool that reports everything.
+
+```bash
+cd bench && go run ./cmd/tessera-bench run
+```
+
+The corpus is generated from specs rather than committed as binaries, so every
+case is readable and the run is reproducible.
 
 ## Documentation
 
