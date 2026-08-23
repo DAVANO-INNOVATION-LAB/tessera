@@ -144,10 +144,11 @@ func (a AuthSettings) Redacted() AuthSettings {
 
 // Config is everything persisted.
 type Config struct {
-	FormatVersion int          `json:"formatVersion"`
-	Connections   []Connection `json:"connections"`
-	Auth          AuthSettings `json:"auth"`
-	UpdatedAt     string       `json:"updatedAt"`
+	FormatVersion int           `json:"formatVersion"`
+	Connections   []Connection  `json:"connections"`
+	Auth          AuthSettings  `json:"auth"`
+	Suppressions  []Suppression `json:"suppressions,omitempty"`
+	UpdatedAt     string        `json:"updatedAt"`
 }
 
 // Store owns the file. Every mutation writes the whole document, which is

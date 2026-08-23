@@ -93,6 +93,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/connections/{id}/test", s.handleConnectionTest)
 	mux.HandleFunc("GET /api/settings/auth", s.handleAuthSettings)
 	mux.HandleFunc("PUT /api/settings/auth", s.handleAuthSettings)
+	mux.HandleFunc("GET /api/suppressions", s.handleSuppressions)
+	mux.HandleFunc("POST /api/suppressions", s.handleSuppressions)
+	mux.HandleFunc("DELETE /api/suppressions/{id}", s.handleSuppression)
 	mux.HandleFunc("GET /api/assets", s.handleAssets)
 	mux.HandleFunc("GET /api/scans", s.handleScans)
 	mux.HandleFunc("GET /api/search", s.handleSearch)
@@ -326,6 +329,33 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		scanID = rec.ID
 	}
 
+	// Suppressions are applied to the response, never to the record. The scan
+	// history above already holds every finding exactly as it was found, so an
+	// audit can reconstruct what the tool actually saw regardless of what
+	// somebody later accepted.
+	suppressed := 0
+	if s.Store != nil {
+		var keep []tessera.Finding
+		sups := s.Store.Suppressions()
+		digest := art.PrimaryFile().SHA256
+		nowT := time.Now()
+		for _, f := range art.Findings {
+			hidden := false
+			for _, sup := range sups {
+				if sup.Matches(f.ID, f.Location, digest, nowT) {
+					hidden = true
+					break
+				}
+			}
+			if hidden {
+				suppressed++
+				continue
+			}
+			keep = append(keep, f)
+		}
+		art.Findings = keep
+	}
+
 	writeJSON(w, map[string]any{
 		"artifact":  art,
 		"worst":     tessera.Worst(art.Findings),
@@ -333,6 +363,9 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		"truncated": truncated,
 		"deep":      r.URL.Query().Get("deep") != "0",
 		"scanId":    scanID,
+		// Counted, never silently dropped: a finding that vanishes without
+		// trace is how an accepted risk becomes an invisible one.
+		"suppressed": suppressed,
 	})
 }
 
@@ -492,6 +525,21 @@ func writeJSON(w http.ResponseWriter, v any) {
 func writeErr(w http.ResponseWriter, code int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
+
+	// Errors from the filesystem and the network are replaced with a canned
+	// message, because their text carries host paths, internal hostnames and
+	// occasionally credentials embedded in a proxy URL.
+	//
+	// Errors this server authored about the request itself are surfaced
+	// verbatim. That distinction did not matter while every endpoint took a
+	// path; it matters now that the API accepts configuration, because
+	// "a suppression needs a reason" arriving as "path is not valid for this
+	// server" is both wrong and impossible to act on.
+	if ue, ok := err.(userError); ok {
+		writeJSONStatus(w, map[string]any{"error": ue.Error()})
+		return
+	}
+
 	msg := "request failed"
 	switch code {
 	case http.StatusBadRequest:
@@ -501,7 +549,7 @@ func writeErr(w http.ResponseWriter, code int, err error) {
 	case http.StatusNotFound:
 		msg = "not found"
 	}
-	_ = err // deliberately not surfaced to the client
+	_ = err // host detail deliberately not surfaced
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
@@ -544,4 +592,31 @@ func (s *Server) handleWhoAmI(w http.ResponseWriter, r *http.Request) {
 		out["mode"] = "token"
 	}
 	writeJSON(w, out)
+}
+
+// userError marks an error as safe to show the caller: it describes the request
+// rather than the host. Anything not wrapped this way is replaced with a canned
+// message on the way out.
+type userError struct{ error }
+
+// userErrf builds one.
+func userErrf(format string, a ...any) error {
+	return userError{fmt.Errorf(format, a...)}
+}
+
+// asUserError marks an existing error as safe to surface. Used where a lower
+// layer already produced a message written for a person — the store's
+// validation, for instance.
+func asUserError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return userError{err}
+}
+
+// writeJSONStatus writes a body after the status has already been set.
+func writeJSONStatus(w http.ResponseWriter, v any) {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(v)
 }

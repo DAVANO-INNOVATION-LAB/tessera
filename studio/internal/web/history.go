@@ -1,7 +1,6 @@
 package web
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/DAVANO-INNOVATION-LAB/tessera"
@@ -13,8 +12,7 @@ import (
 
 func (s *Server) requireHistory(w http.ResponseWriter) bool {
 	if s.History == nil {
-		writeErr(w, http.StatusServiceUnavailable,
-			fmt.Errorf("no scan history: start with --config to keep results"))
+		writeErr(w, http.StatusServiceUnavailable, userErrf("no scan history: start with --config to keep results"))
 		return false
 	}
 	return true
@@ -68,7 +66,7 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 	}
 	d, err := s.History.Compare(r.URL.Query().Get("from"), r.URL.Query().Get("to"))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeErr(w, http.StatusBadRequest, asUserError(err))
 		return
 	}
 	writeJSON(w, d)
@@ -106,4 +104,76 @@ func recordScan(h *store.History, target string, art *tessera.Artifact,
 		Findings:  fs,
 		Truncated: truncated,
 	})
+}
+
+// Suppressions: accepted findings, and the endpoints that manage them.
+
+func (s *Server) handleSuppressions(w http.ResponseWriter, r *http.Request) {
+	if s.Store == nil {
+		writeErr(w, http.StatusServiceUnavailable, userErrf("no configuration store: start with --config to accept findings"))
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		sups := s.Store.Suppressions()
+		permanent := 0
+		for _, x := range sups {
+			if x.Permanent() {
+				permanent++
+			}
+		}
+		writeJSON(w, map[string]any{
+			"suppressions": sups,
+			// Surfaced rather than buried: a waiver that never expires is how an
+			// accepted risk becomes a forgotten one.
+			"permanent": permanent,
+		})
+	case http.MethodPost:
+		var in store.Suppression
+		if err := decodeBody(r, &in); err != nil {
+			writeErr(w, http.StatusBadRequest, asUserError(err))
+			return
+		}
+		// Attribution comes from the session rather than the request body, so
+		// nobody can accept a risk in somebody else's name.
+		in.By = s.currentUser(r)
+		out, err := s.Store.AddSuppression(in)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, asUserError(err))
+			return
+		}
+		writeJSON(w, out)
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, userErrf("method not allowed"))
+	}
+}
+
+func (s *Server) handleSuppression(w http.ResponseWriter, r *http.Request) {
+	if s.Store == nil {
+		writeErr(w, http.StatusServiceUnavailable, userErrf("no configuration store"))
+		return
+	}
+	if err := s.Store.RemoveSuppression(r.PathValue("id")); err != nil {
+		writeErr(w, http.StatusNotFound, asUserError(err))
+		return
+	}
+	writeJSON(w, map[string]any{"removed": true})
+}
+
+// currentUser is who to attribute an acceptance to. Empty when no identity is
+// available, which is itself worth seeing in a review rather than papering over
+// with a placeholder like "admin".
+func (s *Server) currentUser(r *http.Request) string {
+	if s.Auth.OIDC == nil {
+		return ""
+	}
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return ""
+	}
+	v, ok := s.Auth.OIDC.sessions.Load(c.Value)
+	if !ok {
+		return ""
+	}
+	return v.(session).Email
 }

@@ -33,8 +33,7 @@ const maxBodyBytes = 1 << 20
 
 func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
 	if s.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable,
-			fmt.Errorf("no configuration store: start with --config to enable connections"))
+		writeErr(w, http.StatusServiceUnavailable, userErrf("no configuration store: start with --config to enable connections"))
 		return
 	}
 	switch r.Method {
@@ -47,45 +46,45 @@ func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		var c store.Connection
 		if err := decodeBody(r, &c); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+			writeErr(w, http.StatusBadRequest, asUserError(err))
 			return
 		}
 		saved, err := s.Store.Save(c)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+			writeErr(w, http.StatusBadRequest, asUserError(err))
 			return
 		}
 		writeJSON(w, saved)
 	default:
-		writeErr(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
+		writeErr(w, http.StatusMethodNotAllowed, userErrf("method not allowed"))
 	}
 }
 
 func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 	if s.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("no configuration store"))
+		writeErr(w, http.StatusServiceUnavailable, userErrf("no configuration store"))
 		return
 	}
 	id := r.PathValue("id")
 	switch r.Method {
 	case http.MethodDelete:
 		if err := s.Store.Delete(id); err != nil {
-			writeErr(w, http.StatusNotFound, err)
+			writeErr(w, http.StatusNotFound, asUserError(err))
 			return
 		}
 		writeJSON(w, map[string]any{"deleted": id})
 	default:
-		writeErr(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
+		writeErr(w, http.StatusMethodNotAllowed, userErrf("method not allowed"))
 	}
 }
 
 func (s *Server) handleConnectionSecret(w http.ResponseWriter, r *http.Request) {
 	if s.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("no configuration store"))
+		writeErr(w, http.StatusServiceUnavailable, userErrf("no configuration store"))
 		return
 	}
 	if err := s.Store.ClearSecret(r.PathValue("id")); err != nil {
-		writeErr(w, http.StatusNotFound, err)
+		writeErr(w, http.StatusNotFound, asUserError(err))
 		return
 	}
 	writeJSON(w, map[string]any{"cleared": true})
@@ -100,13 +99,13 @@ func (s *Server) handleConnectionSecret(w http.ResponseWriter, r *http.Request) 
 // connection has ever actually succeeded rather than only that it exists.
 func (s *Server) handleConnectionTest(w http.ResponseWriter, r *http.Request) {
 	if s.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("no configuration store"))
+		writeErr(w, http.StatusServiceUnavailable, userErrf("no configuration store"))
 		return
 	}
 	id := r.PathValue("id")
 	conn, ok := s.Store.Connection(id)
 	if !ok {
-		writeErr(w, http.StatusNotFound, fmt.Errorf("no connection with that id"))
+		writeErr(w, http.StatusNotFound, userErrf("no connection with that id"))
 		return
 	}
 
@@ -192,7 +191,7 @@ func httpProbe(c store.Connection) (bool, string) {
 // already has an account on the machine.
 func (s *Server) handleAuthSettings(w http.ResponseWriter, r *http.Request) {
 	if s.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("no configuration store"))
+		writeErr(w, http.StatusServiceUnavailable, userErrf("no configuration store"))
 		return
 	}
 	switch r.Method {
@@ -212,12 +211,12 @@ func (s *Server) handleAuthSettings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		var in store.AuthSettings
 		if err := decodeBody(r, &in); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+			writeErr(w, http.StatusBadRequest, asUserError(err))
 			return
 		}
 		if in.OIDCIssuer != "" {
 			if err := validateOIDC(in); err != nil {
-				writeErr(w, http.StatusBadRequest, err)
+				writeErr(w, http.StatusBadRequest, asUserError(err))
 				return
 			}
 		}
@@ -228,7 +227,7 @@ func (s *Server) handleAuthSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"saved": true, "appliesOnRestart": true})
 
 	default:
-		writeErr(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
+		writeErr(w, http.StatusMethodNotAllowed, userErrf("method not allowed"))
 	}
 }
 
@@ -278,7 +277,7 @@ func (s *Server) activeAuthMode() string {
 // unless told to.
 func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	if s.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("no configuration store"))
+		writeErr(w, http.StatusServiceUnavailable, userErrf("no configuration store"))
 		return
 	}
 	withSecrets := r.URL.Query().Get("secrets") == "include"
@@ -298,17 +297,17 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 	if s.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("no configuration store"))
+		writeErr(w, http.StatusServiceUnavailable, userErrf("no configuration store"))
 		return
 	}
 	var cfg store.Config
 	if err := decodeBody(r, &cfg); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeErr(w, http.StatusBadRequest, asUserError(err))
 		return
 	}
 	missing, err := s.Store.Restore(cfg)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeErr(w, http.StatusBadRequest, asUserError(err))
 		return
 	}
 	writeJSON(w, map[string]any{
