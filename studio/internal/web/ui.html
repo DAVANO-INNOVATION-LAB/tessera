@@ -269,11 +269,42 @@
     .pill.unk{color:var(--faint);border:1px solid var(--line)}
     .note{font-size:.8rem;color:var(--mute);margin:.4rem 0 0}
     .warn{font-size:.8rem;color:var(--high);margin:.4rem 0 0}
+
+    /* ── inventory ────────────────────────────────────────────────────── */
+    .estate{display:flex;gap:.4rem;flex-wrap:wrap;margin:.2rem 0 1rem}
+    .stat{border:1px solid var(--line);border-radius:8px;padding:.4rem .7rem;background:var(--panel)}
+    .stat .n{font-size:1.25rem;font-weight:650;line-height:1.1}
+    .stat .l{font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;
+      text-transform:uppercase;color:var(--faint)}
+    .stat.s-Critical .n{color:var(--crit)}
+    .stat.s-High .n{color:var(--high)}
+    .stat.s-Medium .n{color:var(--med)}
+    .stat.s-Low .n{color:var(--low)}
+    .asset{display:grid;grid-template-columns:auto 1fr auto;gap:.6rem;align-items:center;
+      border:1px solid var(--line);border-left-width:3px;border-radius:8px;
+      background:var(--panel);padding:.5rem .7rem;margin:.35rem 0;width:100%;text-align:left}
+    .asset:hover{background:var(--panel-2)}
+    .asset.v-Quarantined{border-left-color:var(--crit)}
+    .asset.v-ReviewRequired{border-left-color:var(--high)}
+    .asset.v-Approved{border-left-color:var(--accent)}
+    .asset .nm{font-weight:550;font-size:.9rem}
+    .asset .pth{font-family:var(--mono);font-size:.7rem;color:var(--faint)}
+    .asset .risk{font-family:var(--mono);font-size:.78rem;color:var(--mute);text-align:right}
+    .asset .seen{font-family:var(--mono);font-size:.66rem;color:var(--faint)}
+    .sevdots{display:flex;gap:.15rem}
+    .sevdots i{width:7px;height:7px;border-radius:50%;display:block}
+    .sevdots i.s-Critical{background:var(--crit)}
+    .sevdots i.s-High{background:var(--high)}
+    .sevdots i.s-Medium{background:var(--med)}
+    .sevdots i.s-Low{background:var(--low)}
+    .tax{font-family:var(--mono);font-size:.64rem;color:var(--faint);
+      border:1px solid var(--line);border-radius:4px;padding:0 .3rem;margin-left:.35rem}
 </style>
 
 <header>
   <span class="brand"><span class="dot">&#9672;</span>Tessera Studio</span>
   <span class="rootpath" id="root"></span>
+  <button class="iconbtn" id="nav-inventory" title="Every model seen, worst first">inventory</button>
   <button class="iconbtn" id="nav-settings" title="Connections and settings">settings</button>
   <button class="iconbtn" id="theme" title="Switch theme">theme</button>
 </header>
@@ -837,8 +868,122 @@ fetch('/api/browse?path=').then(r => r.json()).then(d => {
 // Open whatever the URL names. This is what makes a result shareable, and it is
 // also the only way something without a mouse — a screenshot runner, a smoke
 // test — can reach a rendered analysis.
+/* ── inventory: the estate, worst first ─────────────────────────────── */
+//
+// This is the view a security engineer opens a tool expecting, and it exists
+// only because scan results are kept. Sorted by risk rather than by name,
+// because an inventory ordered alphabetically buries the thing that needed
+// attention — which is the only reason anybody opened it.
+
+el('nav-inventory').addEventListener('click', () => { location.hash = '#inventory'; });
+
+async function renderInventory() {
+  const pane = el('pane');
+  pane.innerHTML = '<h1>Inventory</h1><div class="skel" style="width:55%"></div>';
+
+  let d;
+  try { d = await (await fetch('/api/assets')).json(); }
+  catch (e) { pane.innerHTML = '<h1>Inventory</h1><div class="err">could not load</div>'; return; }
+
+  if (d.error) {
+    pane.innerHTML = `<h1>Inventory</h1>
+      <div class="empty"><strong>Nothing is being kept yet.</strong>
+      <span>Start with <span class="mono">--config /path/to/config.json</span> and
+      every scan is recorded, which is what makes first-seen, history, search
+      across models and diff possible.</span></div>`;
+    return;
+  }
+
+  const assets = d.assets || [];
+  const t = d.totals || {};
+
+  pane.innerHTML = `
+    <h1>Inventory</h1>
+    <p class="sub">${assets.length} deployment${assets.length === 1 ? '' : 's'} &middot;
+      ${d.scans} scan${d.scans === 1 ? '' : 's'} kept</p>
+
+    <div class="estate">
+      ${SEV.filter(k => t[k]).map(k =>
+        `<div class="stat s-${k}"><div class="n">${t[k]}</div><div class="l">${k}</div></div>`).join('')
+        || '<div class="stat"><div class="n">0</div><div class="l">findings</div></div>'}
+      <div class="stat"><div class="n">${assets.filter(a => a.verdict === 'Quarantined').length}</div>
+        <div class="l">quarantined</div></div>
+    </div>
+
+    <h2>Search across every model</h2>
+    <p class="hint">The question a per-model filter cannot answer &mdash; try
+      <span class="mono">pickle</span>, a CWE like <span class="mono">502</span>,
+      or an ATLAS technique.</p>
+    <div class="filters">
+      ${SEV.map(k => `<button class="s-${k}" data-gsev="${k}" aria-pressed="false">${k}</button>`).join('')}
+      <span class="search"><input id="gq" type="search" placeholder="search&hellip;"
+        aria-label="Search all findings"></span>
+    </div>
+    <div id="gres"></div>
+
+    <h2>Models <span class="count">${assets.length}</span></h2>
+    <p class="hint">Worst first. Select one to open its latest scan.</p>
+    ${assets.map(assetRow).join('') || '<p class="spin">No scans recorded yet.</p>'}`;
+
+  const q = el('gq');
+  q.addEventListener('input', runSearch);
+  for (const b of document.querySelectorAll('[data-gsev]')) {
+    b.addEventListener('click', () => {
+      const on = b.getAttribute('aria-pressed') === 'true';
+      for (const o of document.querySelectorAll('[data-gsev]')) o.setAttribute('aria-pressed', 'false');
+      b.setAttribute('aria-pressed', String(!on));
+      runSearch();
+    });
+  }
+  el('pane').addEventListener('click', (ev) => {
+    const a = ev.target.closest('[data-open]');
+    if (a) location.hash = '#' + a.dataset.open;
+  });
+}
+
+function assetRow(a) {
+  const dots = SEV.filter(k => a.counts?.[k])
+    .map(k => Array(Math.min(a.counts[k], 8)).fill(`<i class="s-${k}"></i>`).join('')).join('');
+  return `<button class="asset v-${esc(a.verdict || '')}" data-open="${esc(a.target)}">
+    <span class="sevdots">${dots || '<i style="background:var(--accent)"></i>'}</span>
+    <span><span class="nm">${esc(a.modelName || a.target)}</span>
+      <span class="pth">${esc(a.target)}</span></span>
+    <span><span class="risk">${esc(a.verdict || '')} &middot; risk ${a.riskScore}</span><br>
+      <span class="seen">first seen ${esc((a.firstSeen || '').slice(0, 10))} &middot;
+        ${a.scanCount} scan${a.scanCount === 1 ? '' : 's'}</span></span>
+  </button>`;
+}
+
+async function runSearch() {
+  const box = el('gres');
+  if (!box) return;
+  const q = el('gq').value.trim();
+  const sevBtn = document.querySelector('[data-gsev][aria-pressed="true"]');
+  const sev = sevBtn ? sevBtn.dataset.gsev : '';
+  if (!q && !sev) { box.innerHTML = ''; return; }
+
+  const r = await (await fetch(`/api/search?q=${encodeURIComponent(q)}&severity=${encodeURIComponent(sev)}`)).json();
+  if (r.error) { box.innerHTML = `<div class="err">${esc(r.error)}</div>`; return; }
+  if (!r.count) { box.innerHTML = '<p class="spin">Nothing matches.</p>'; return; }
+
+  box.innerHTML = `<p class="hint">${r.count} match${r.count === 1 ? '' : 'es'}</p>` +
+    r.results.slice(0, 100).map(x => {
+      const f = x.finding;
+      return `<div class="finding s-${esc(f.severity)}" data-open="${esc(x.target)}">
+        <button class="fhead">
+          <span class="sev s-${esc(f.severity)}">${esc(f.severity)}</span>
+          <span class="fid">${esc(f.id)}</span>
+          <span class="ftitle">${esc(f.title || '')}</span>
+          ${f.cwe ? `<span class="tax">CWE-${esc(f.cwe)}</span>` : ''}
+          ${f.atlas ? `<span class="tax">${esc(f.atlas)}</span>` : ''}
+          <span class="floc">${esc(x.modelName || x.target)}</span>
+        </button></div>`;
+    }).join('');
+}
+
 async function openFromURL() {
   const want = decodeURIComponent(location.hash.slice(1));
+  if (want === 'inventory') { await browse(cwd); renderInventory(); return; }
   const theme = new URLSearchParams(location.search).get('theme');
   if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
   if (!want) { browse(''); return; }
