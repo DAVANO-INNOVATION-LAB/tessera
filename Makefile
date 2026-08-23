@@ -10,7 +10,10 @@
 VERSION ?= dev
 LDFLAGS := -X main.version=$(VERSION)
 LIBFLAGS := -X main.version=$(VERSION)
-PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+# windows/arm64 is here because action.yml maps a Windows ARM64 runner to
+# tessera-windows-arm64.exe. Omitting it made the action fail on those runners
+# with a download error naming an asset nobody had ever built.
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 # c-shared library extension per host OS.
 UNAME := $(shell uname -s)
