@@ -375,7 +375,7 @@ func (s *Server) attachDerivation(art *tessera.Artifact, dir, target string) {
 // finding it answers and the weakness class that finding belongs to.
 func changeFor(a harden.Action) tessera.DerivationChange {
 	ch := tessera.DerivationChange{
-		Summary:     string(a.Kind) + " " + a.Path + strings.TrimPrefix(" "+a.Key, " "),
+		Summary:     summaryOf(a),
 		Description: a.Why,
 		Consequence: a.Consequence,
 	}
@@ -410,4 +410,15 @@ func cmpOr(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// summaryOf is the one-line description of an action that ends up in a signed
+// payload and in a pedigree note, so it has to read correctly to somebody who
+// has never seen this tool.
+func summaryOf(a harden.Action) string {
+	out := string(a.Kind) + " " + a.Path
+	if a.Key != "" {
+		out += " " + a.Key
+	}
+	return out
 }

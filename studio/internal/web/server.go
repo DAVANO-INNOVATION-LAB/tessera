@@ -97,6 +97,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/harden/plan", s.handleHardenPlan)
 	mux.HandleFunc("POST /api/harden/apply", s.handleHardenApply)
 	mux.HandleFunc("GET /api/lineage", s.handleLineage)
+	mux.HandleFunc("GET /api/attest", s.handleAttest)
+	mux.HandleFunc("GET /api/settings/signing", s.handleSigningSettings)
+	mux.HandleFunc("PUT /api/settings/signing", s.handleSigningSettings)
 	mux.HandleFunc("GET /api/taxonomy", s.handleTaxonomy)
 	mux.HandleFunc("GET /api/suppressions", s.handleSuppressions)
 	mux.HandleFunc("POST /api/suppressions", s.handleSuppressions)
@@ -477,24 +480,7 @@ func (s *Server) handleBOM(w http.ResponseWriter, r *http.Request) {
 		at = info.ModTime()
 	}
 
-	var (
-		data []byte
-		ext  string
-	)
-	switch format {
-	case "spdx":
-		data, err = tessera.SPDX(art, at)
-		ext = ".spdx.json"
-	case "sarif":
-		data, err = tessera.SARIF(art, at)
-		ext = ".sarif.json"
-	case "cyclonedx-1.7":
-		data, err = tessera.CycloneDXVersion(art, at, tessera.CycloneDX17)
-		ext = ".cdx.json"
-	default:
-		data, err = tessera.CycloneDX(art, at)
-		ext = ".cdx.json"
-	}
+	data, ext, err := renderBOM(art, at, format)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -665,4 +651,27 @@ func gateFor(uri string, art *tessera.Artifact, parsed int) tessera.GateResult {
 		Digest: art.PrimaryFile().SHA256,
 		Format: string(art.Format),
 	}, nil, nil, time.Now())
+}
+
+// renderBOM turns an analysed artifact into a document.
+//
+// Shared by the plain download and the attested one so the two cannot diverge.
+// If they rendered separately, a signature would eventually cover a document
+// subtly unlike the one people downloaded — and the digest would be right,
+// which is the worst way for it to be wrong.
+func renderBOM(art *tessera.Artifact, at time.Time, format string) ([]byte, string, error) {
+	switch format {
+	case "spdx":
+		b, err := tessera.SPDX(art, at)
+		return b, ".spdx.json", err
+	case "sarif":
+		b, err := tessera.SARIF(art, at)
+		return b, ".sarif.json", err
+	case "cyclonedx-1.7":
+		b, err := tessera.CycloneDXVersion(art, at, tessera.CycloneDX17)
+		return b, ".cdx.json", err
+	default:
+		b, err := tessera.CycloneDX(art, at)
+		return b, ".cdx.json", err
+	}
 }

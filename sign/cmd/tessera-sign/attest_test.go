@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	sign "github.com/DAVANO-INNOVATION-LAB/tessera/sign"
 )
 
 // The attestation record is the durable artifact — somebody may read it years
@@ -17,7 +19,7 @@ func TestAttestationRecordBindsDocumentToArtifact(t *testing.T) {
       "artifact":"model.gguf","artifactSha256":"bb","artifactFormat":"gguf",
       "tool":"tessera","toolVersion":"v1.0.0","attestedAt":"2026-08-20T00:00:00Z",
       "signature":{"version":1,"suite":"x","signedAt":"2026-08-20T00:00:00Z"}}`)
-	var rec attestation
+	var rec sign.Attestation
 	if err := json.Unmarshal(raw, &rec); err != nil {
 		t.Fatalf("the record shape changed incompatibly: %v", err)
 	}

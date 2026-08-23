@@ -148,7 +148,23 @@ type Config struct {
 	Connections   []Connection  `json:"connections"`
 	Auth          AuthSettings  `json:"auth"`
 	Suppressions  []Suppression `json:"suppressions,omitempty"`
+	Signing       Signing       `json:"signing,omitempty"`
 	UpdatedAt     string        `json:"updatedAt"`
+}
+
+// Signing configures attestation.
+//
+// The key is named by path and never held in the config file. A private signing
+// key inside a document people export as a "backup", mail to each other and
+// paste into tickets is a key that has already leaked; keeping it out of band
+// means the snapshot endpoint cannot spill it however it is called.
+type Signing struct {
+	// KeyPath is a private key PEM on the same host, in the format
+	// tessera-sign generates.
+	KeyPath string `json:"keyPath,omitempty"`
+	// Identity is recorded in attestations so a reader can tell whose key this
+	// was without holding the public half.
+	Identity string `json:"identity,omitempty"`
 }
 
 // Store owns the file. Every mutation writes the whole document, which is
@@ -446,3 +462,28 @@ func newID() string {
 // cryptoRead is crypto/rand.Read, wrapped so the import stays local to the one
 // place that needs it.
 func cryptoRead(b []byte) (int, error) { return rand.Read(b) }
+
+// SigningConfig returns the signing settings.
+func (s *Store) SigningConfig() Signing {
+	if s == nil {
+		return Signing{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg.Signing
+}
+
+// SetSigning records where the signing key lives.
+//
+// The path is stored, not the key. Validation that it parses happens at use,
+// not here: a key can be mounted after configuration, which is the normal shape
+// of a deployment where the key comes from a secret store.
+func (s *Store) SetSigning(in Signing) error {
+	if s == nil {
+		return fmt.Errorf("no configuration store")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.Signing = in
+	return s.writeLocked()
+}

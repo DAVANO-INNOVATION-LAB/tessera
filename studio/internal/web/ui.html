@@ -564,6 +564,8 @@ function render() {
       <a href="/api/bom?format=cyclonedx-1.7&path=${encodeURIComponent(path)}">CycloneDX 1.7</a>
       <a href="/api/bom?format=spdx&path=${encodeURIComponent(path)}">SPDX 3.0.1</a>
       <a href="/api/bom?format=sarif&path=${encodeURIComponent(path)}">SARIF 2.1.0</a>
+      <a href="/api/attest?format=cyclonedx&path=${encodeURIComponent(path)}"
+         title="CycloneDX plus a hybrid post-quantum attestation binding it to these bytes">Signed &amp; attested</a>
     </div>`;
 
   renderFindings();

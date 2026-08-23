@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -16,48 +15,8 @@ import (
 	sign "github.com/DAVANO-INNOVATION-LAB/tessera/sign"
 )
 
-// Attestation is the point of this command, and it is a stronger claim than a
-// signed document.
-//
-// A signature answers "who produced this bill of materials". It does not answer
-// "does this bill of materials still describe the model in front of me" — and a
-// procurement reviewer, six months and three re-uploads later, is asking the
-// second question. Signing a document that has drifted from its artifact
-// produces a cryptographically impeccable lie.
-//
-// So an attestation here is two facts bound together: the AI bill of materials,
-// signed; and the artifact digest the document was derived from, inside the
-// signed payload. Verification checks both — the signature against the key the
-// verifier names, and every claim in the document against the bytes on disk.
-// Either failing is a failure.
-//
-// The signature is hybrid post-quantum because these documents are retained.
-// An AIBOM filed against a federal contract outlives the assumptions ECDSA
-// rests on, and re-signing an archive after the fact is not a thing anyone does.
-
-// attestation is written alongside each document. It is deliberately small and
-// readable: somebody auditing this in a decade should not need our source to
-// understand what was claimed.
-type attestation struct {
-	Kind string `json:"kind"`
-	// Document names the file this attests to, and DocumentSHA256 pins its
-	// bytes, so the attestation cannot be moved onto a different document.
-	Document       string `json:"document"`
-	DocumentSHA256 string `json:"documentSha256"`
-	// Artifact is the model the document describes, pinned by digest. This is
-	// what makes the attestation checkable against reality rather than only
-	// against itself.
-	Artifact       string `json:"artifact"`
-	ArtifactSHA256 string `json:"artifactSha256"`
-	Format         string `json:"artifactFormat"`
-	// Tool records what produced the document, because a claim is only as good
-	// as the thing that made it.
-	Tool        string       `json:"tool"`
-	ToolVersion string       `json:"toolVersion"`
-	AttestedAt  string       `json:"attestedAt"`
-	Signature   *sign.Bundle `json:"signature"`
-}
-
+// The attestation format itself now lives in the sign package, so this command
+// and the Studio emit the same record and either can verify the other's.
 func runAttest(args []string) int {
 	fs := flag.NewFlagSet("attest", flag.ContinueOnError)
 	key := fs.String("key", "", "private key PEM")
@@ -143,30 +102,20 @@ func runAttest(args []string) int {
 		// The signature covers the document bytes. The attestation record binds
 		// those bytes to the artifact they describe, and is itself covered
 		// because the digests are inside the signed payload.
-		bundle, err := sign.Sign(kp, doc, time.Now().UTC())
+		rec, err := sign.Attest(kp, doc, filepath.Base(docPath), sign.ArtifactRef{
+			Path: primary.Path, SHA256: primary.SHA256, Format: string(art.Format),
+		}, "tessera", version, time.Now().UTC(), derivationOf(art))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "tessera-sign: %v\n", err)
 			return exitError
 		}
-		rec := attestation{
-			Kind:           "tessera-aibom-attestation/v1",
-			Document:       filepath.Base(docPath),
-			DocumentSHA256: sha256Hex(doc),
-			Artifact:       primary.Path,
-			ArtifactSHA256: primary.SHA256,
-			Format:         string(art.Format),
-			Tool:           "tessera",
-			ToolVersion:    version,
-			AttestedAt:     bundle.SignedAt,
-			Signature:      bundle,
-		}
-		enc, err := json.MarshalIndent(&rec, "", "  ")
+		enc, err := rec.Marshal()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "tessera-sign: %v\n", err)
 			return exitError
 		}
 		attPath := docPath + ".att.json"
-		if err := os.WriteFile(attPath, append(enc, '\n'), 0o644); err != nil {
+		if err := os.WriteFile(attPath, enc, 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "tessera-sign: %v\n", err)
 			return exitError
 		}
@@ -209,13 +158,9 @@ func runVerifyAttestation(args []string) int {
 		fmt.Fprintf(os.Stderr, "tessera-sign: %v\n", err)
 		return exitError
 	}
-	var rec attestation
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		fmt.Fprintf(os.Stderr, "tessera-sign: attestation: %v\n", err)
-		return exitError
-	}
-	if rec.Signature == nil {
-		fmt.Fprintln(os.Stderr, "tessera-sign: attestation carries no signature")
+	rec, err := sign.ParseAttestation(raw)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tessera-sign: %v\n", err)
 		return exitUnverified
 	}
 
@@ -224,11 +169,6 @@ func runVerifyAttestation(args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tessera-sign: %v\n", err)
 		return exitError
-	}
-	if got := sha256Hex(doc); got != rec.DocumentSHA256 {
-		fmt.Fprintf(os.Stderr,
-			"tessera-sign: %s does not match the digest this attestation covers\n", rec.Document)
-		return exitUnverified
 	}
 
 	pubData, err := os.ReadFile(*pub)
@@ -244,12 +184,35 @@ func runVerifyAttestation(args []string) int {
 		fmt.Fprintf(os.Stderr, "tessera-sign: %v\n", err)
 		return exitError
 	}
-	if err := sign.Verify(rec.Signature, doc, pq, ec); err != nil {
-		fmt.Fprintf(os.Stderr, "tessera-sign: signature does not verify: %v\n", err)
+	if err := rec.VerifyDocument(doc, pq, ec); err != nil {
+		fmt.Fprintf(os.Stderr, "tessera-sign: %v\n", err)
 		return exitUnverified
 	}
 	fmt.Fprintf(os.Stderr, "signature verified (%s), signed %s\n",
 		rec.Signature.Suite, rec.AttestedAt)
+
+	// A signed derivation is a distinct claim and gets said out loud. "Verified"
+	// on a document that quietly descends from something else tells a reader
+	// less than they need: what they are holding is not the model they were
+	// offered, it is a modified copy, and the modification is the point.
+	if d := rec.Derivation; d != nil {
+		fmt.Fprintf(os.Stderr, "\nthis is a derived artifact, and the signer attests to producing it\n")
+		if d.SourcePath != "" || d.SourceSHA256 != "" {
+			fmt.Fprintf(os.Stderr, "  derived from: %s\n", cmpFirst(d.SourcePath, d.SourceSHA256))
+		}
+		if d.SourceSHA256 != "" {
+			fmt.Fprintf(os.Stderr, "  source sha256: %s\n", d.SourceSHA256)
+		}
+		if d.SourceVerdict != "" {
+			fmt.Fprintf(os.Stderr, "  source assessed as: %s\n", d.SourceVerdict)
+		}
+		for _, c := range d.Changes {
+			fmt.Fprintf(os.Stderr, "  change: %s\n", c)
+		}
+		if len(d.Resolves) > 0 {
+			fmt.Fprintf(os.Stderr, "  resolves: %s\n", strings.Join(d.Resolves, ", "))
+		}
+	}
 
 	// Half of an attestation is who signed it. The other half is whether the
 	// document is still true, and only the artifact can answer that.
@@ -326,4 +289,38 @@ func positional(fs *flag.FlagSet, args []string) (string, error) {
 		return "", fmt.Errorf("expected exactly one path")
 	}
 	return fs.Arg(0), nil
+}
+
+// derivationOf lifts a verified derivation onto the attestation.
+//
+// An unverified one is dropped rather than signed. The emitters already refuse
+// to state an unverified derivation structurally; signing one would be strictly
+// worse, converting a claim anybody could have written into a claim carrying
+// this key's name.
+func derivationOf(art *tessera.Artifact) *sign.AttestedDerivation {
+	d := art.Derivation
+	if d == nil || d.Unverified {
+		return nil
+	}
+	out := &sign.AttestedDerivation{
+		SourceSHA256:  d.Source.SHA256,
+		SourcePath:    cmpFirst(d.Source.Name, d.Source.Path),
+		SourceVerdict: d.Source.Verdict,
+	}
+	for _, c := range d.Changes {
+		out.Changes = append(out.Changes, c.Summary)
+		for _, r := range c.Resolves {
+			out.Resolves = append(out.Resolves, r.ID)
+		}
+	}
+	return out
+}
+
+func cmpFirst(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
