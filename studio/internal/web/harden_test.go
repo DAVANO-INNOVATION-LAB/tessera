@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/DAVANO-INNOVATION-LAB/tessera/studio/internal/harden"
@@ -300,5 +301,99 @@ func TestUnhardenedArtifactHasNoLabel(t *testing.T) {
 	json.Unmarshal(get(t, s, "/api/analyze?path=m").Body.Bytes(), &got)
 	if got.Hardened != nil {
 		t.Errorf("an untouched model was labelled: %+v", got.Hardened)
+	}
+}
+
+// The bill of materials for a hardened copy declares its pedigree. A document
+// for a derivative that does not say what it came from describes an artifact
+// that appears to have arrived from nowhere.
+func TestBOMForHardenedCopyCarriesPedigree(t *testing.T) {
+	s := hardenServerWithHistory(t)
+	get(t, s, "/api/analyze?path=m")
+
+	var plan struct {
+		Actions []map[string]any `json:"actions"`
+	}
+	json.Unmarshal(get(t, s, "/api/harden/plan?path=m").Body.Bytes(), &plan)
+	for _, a := range plan.Actions {
+		a["selected"] = true
+	}
+	postJSON(t, s, "/api/harden/apply", map[string]any{
+		"path": "m", "destination": "m-hardened", "actions": plan.Actions,
+	})
+
+	rec := get(t, s, "/api/bom?format=cyclonedx&path=m-hardened")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bom: %d %s", rec.Code, rec.Body.String())
+	}
+	var doc struct {
+		Metadata struct {
+			Component struct {
+				Pedigree struct {
+					Ancestors []struct {
+						Hashes []struct {
+							Content string `json:"content"`
+						} `json:"hashes"`
+					} `json:"ancestors"`
+					Patches []struct {
+						Type     string `json:"type"`
+						Resolves []struct {
+							ID   string `json:"id"`
+							Type string `json:"type"`
+						} `json:"resolves"`
+					} `json:"patches"`
+					Notes string `json:"notes"`
+				} `json:"pedigree"`
+			} `json:"component"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	p := doc.Metadata.Component.Pedigree
+	if len(p.Ancestors) == 0 || len(p.Ancestors[0].Hashes) == 0 {
+		t.Fatal("no ancestor carrying a digest: the pedigree is not checkable")
+	}
+	if len(p.Patches) == 0 {
+		t.Fatal("the document does not say what was changed")
+	}
+	if len(p.Patches[0].Resolves) == 0 || p.Patches[0].Resolves[0].Type != "security" {
+		t.Errorf("patch resolves nothing: %+v", p.Patches[0])
+	}
+}
+
+// A forged record must not put a resolved-finding claim into a document.
+//
+// This is the laundering case in its most dangerous form: a BOM asserting that
+// a pickle was removed, naming this tool as the source of the assertion, for an
+// artifact where the pickle is still present and still executes on load.
+func TestBOMForForgedRecordAssertsNoRemediation(t *testing.T) {
+	s := hardenServerWithHistory(t)
+
+	forged := filepath.Join(s.Root, "forged")
+	os.MkdirAll(forged, 0o755)
+	writeModel(t, filepath.Join(forged, "model.safetensors"))
+	pkl := []byte("\x80\x02cos\nsystem\nq\x00X\x02\x00\x00\x00idq\x01\x85q\x02Rq\x03.")
+	os.WriteFile(filepath.Join(forged, "evil.pkl"), pkl, 0o644)
+	harden.WriteProvenance(forged, harden.Provenance{
+		Source: harden.ProvenanceSource{Digest: "made-up", Path: "somewhere"},
+		Applied: []harden.Action{{
+			Kind: harden.KindRemoveFile, Path: "evil.pkl", Finding: "TESS-PICKLE-001",
+		}},
+	})
+
+	body := get(t, s, "/api/bom?format=cyclonedx&path=forged").Body.String()
+	if strings.Contains(body, "TESS-PICKLE-001\"") && strings.Contains(body, "\"resolves\"") {
+		t.Error("the document claims a finding was resolved on a forged record's word")
+	}
+	if strings.Contains(body, `"patches"`) {
+		t.Error("a forged record produced patch entries")
+	}
+	if !strings.Contains(body, "unverified") {
+		t.Error("the document does not mention that a claim could not be verified")
+	}
+	// The pickle is still there, so the scan must still report it.
+	if !strings.Contains(get(t, s, "/api/analyze?path=forged").Body.String(), "TESS-PICKLE-001") {
+		t.Error("the live pickle stopped being reported")
 	}
 }

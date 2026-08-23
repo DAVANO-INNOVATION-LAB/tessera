@@ -27,6 +27,13 @@ type (
 	// Lineage is the model's claimed ancestry — base models, sources, datasets.
 	Lineage = model.Lineage
 
+	// Derivation and its parts describe an artifact this tool produced from
+	// another one, and become CycloneDX pedigree on the way out.
+	Derivation       = model.Derivation
+	DerivationSource = model.DerivationSource
+	DerivationChange = model.DerivationChange
+	DerivationIssue  = model.DerivationIssue
+
 	// Reference is a named pointer to another artifact or dataset.
 	Reference = model.Reference
 

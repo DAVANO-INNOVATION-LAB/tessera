@@ -463,6 +463,13 @@ func (s *Server) handleBOM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A hardened copy declares its pedigree in the document, not only in this
+	// interface. A bill of materials for a derivative that does not say what it
+	// was derived from describes an artifact that appears to have come from
+	// nowhere — and the derivation is exactly what a reader downstream needs to
+	// reconcile it against the model they already had.
+	s.attachDerivation(art, walkRoot(target), r.URL.Query().Get("path"))
+
 	// Reproducible by construction: the BOM is stamped from the artifact's own
 	// bytes, not the wall clock, so downloading twice yields the same document.
 	at := time.Unix(0, 0).UTC()

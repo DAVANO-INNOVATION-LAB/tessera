@@ -286,10 +286,58 @@ func pedigree(a *model.Artifact) *cdxPedigree {
 			ExternalReferences: refToExt(ref),
 		})
 	}
-	if len(ancestors) == 0 {
+	// A derivation this tool performed is pedigree in the exact sense the spec
+	// means: the component was created by modifying another one. It joins the
+	// declared ancestry rather than replacing it — a hardened fine-tune has both
+	// a base model it was trained from and an artifact it was cut from, and a
+	// document that showed only one would be answering a different question than
+	// the reader asked.
+	var patches []cdxPatch
+	notes := ""
+	if d := a.Derivation; d != nil {
+		notes = derivationNotes(d)
+		// An unverified derivation contributes prose and nothing else. Emitting
+		// an ancestor would put an unconfirmed edge into the part of the
+		// document that tooling actually reads.
+		if src := d.Source; !d.Unverified &&
+			(src.Name != "" || src.SHA256 != "" || src.Path != "") {
+			anc := cdxComponent{
+				Type:    "machine-learning-model",
+				Name:    cmp.Or(src.Name, src.Path, "source model"),
+				Version: src.Version,
+				PURL:    src.PURL,
+			}
+			// The digest is the load-bearing part. It turns "descended from X"
+			// from an assertion into something a reader holding the original can
+			// check, which is the difference between provenance and a rumour.
+			if src.SHA256 != "" {
+				anc.Hashes = []cdxHash{{Alg: "SHA-256", Content: src.SHA256}}
+			}
+			ancestors = append(ancestors, anc)
+		}
+		for _, ch := range d.Changes {
+			if d.Unverified {
+				break
+			}
+			p := cdxPatch{Type: "unofficial"}
+			for _, iss := range ch.Resolves {
+				p.Resolves = append(p.Resolves, cdxIssue{
+					// Every finding hardening answers is a security issue; that
+					// is the only reason an action is ever proposed.
+					Type: "security", ID: iss.ID, Name: iss.Name,
+					Description: cmp.Or(iss.Description, ch.Description),
+					Source:      cdxSource{Name: "Tessera"},
+					References:  iss.References,
+				})
+			}
+			patches = append(patches, p)
+		}
+	}
+
+	if len(ancestors) == 0 && len(patches) == 0 && notes == "" {
 		return nil
 	}
-	return &cdxPedigree{Ancestors: ancestors}
+	return &cdxPedigree{Ancestors: ancestors, Patches: patches, Notes: notes}
 }
 
 func externalRefs(a *model.Artifact) []cdxExtRef {
@@ -479,6 +527,26 @@ type cdxIO struct {
 
 type cdxPedigree struct {
 	Ancestors []cdxComponent `json:"ancestors,omitempty"`
+	Patches   []cdxPatch     `json:"patches,omitempty"`
+	Notes     string         `json:"notes,omitempty"`
+}
+
+// cdxPatch is one deviation from an ancestor. The spec's type enum is
+// unofficial / monkey / backport / cherry-pick; hardening is "unofficial",
+// being a modification the model's own supplier did not publish.
+type cdxPatch struct {
+	Type     string     `json:"type"`
+	Resolves []cdxIssue `json:"resolves,omitempty"`
+}
+
+// cdxIssue is what a patch resolves. Type is defect / enhancement / security.
+type cdxIssue struct {
+	Type        string    `json:"type"`
+	ID          string    `json:"id,omitempty"`
+	Name        string    `json:"name,omitempty"`
+	Description string    `json:"description,omitempty"`
+	Source      cdxSource `json:"source,omitempty"`
+	References  []string  `json:"references,omitempty"`
 }
 
 type cdxProp struct {
@@ -535,4 +603,40 @@ func deterministicUUID(seed string) string {
 	b[12] = '4'                   // version 4
 	b[16] = "89ab"[int(sum[8])%4] // variant
 	return fmt.Sprintf("%s-%s-%s-%s-%s", b[0:8], b[8:12], b[12:16], b[16:20], b[20:32])
+}
+
+// derivationNotes is the human sentence that travels with the pedigree.
+//
+// The structured fields say what changed; this says what it means, for a reader
+// who opened the document to answer "can I use this" rather than to diff it.
+// Any note the derivation carries of its own — most importantly, that it could
+// not be verified — leads, because that qualifies everything after it.
+func derivationNotes(d *model.Derivation) string {
+	var parts []string
+	if d.Notes != "" {
+		parts = append(parts, d.Notes)
+	}
+	// An unverified derivation gets its note and stops. The summary below states
+	// the derivation as fact, which is the one thing that must not follow a
+	// sentence saying it could not be confirmed.
+	if d.Unverified {
+		return strings.Join(parts, " ")
+	}
+	src := cmp.Or(d.Source.Name, d.Source.Path)
+	switch {
+	case src != "" && d.Source.Verdict != "":
+		parts = append(parts, fmt.Sprintf(
+			"Derived from %s, which was assessed as %s. %d change(s) applied.",
+			src, d.Source.Verdict, len(d.Changes)))
+	case src != "":
+		parts = append(parts, fmt.Sprintf("Derived from %s. %d change(s) applied.",
+			src, len(d.Changes)))
+	}
+	if d.Tool != "" {
+		parts = append(parts, "Produced by "+d.Tool+".")
+	}
+	if d.ProducedAt != "" {
+		parts = append(parts, "Produced at "+d.ProducedAt+".")
+	}
+	return strings.Join(parts, " ")
 }

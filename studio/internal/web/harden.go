@@ -310,3 +310,104 @@ func (s *Server) handleLineage(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, s.History.LineageFor(digest, path))
 }
+
+// attachDerivation puts a verified hardening record onto the artifact, so it
+// travels into the bill of materials as CycloneDX pedigree and an SPDX
+// descendantOf edge.
+//
+// Gated on verification, and this is the decision worth defending. A pedigree's
+// ancestors field is a fairly harmless claim — naming a benign parent does not
+// make the child benign, and the digest makes it checkable. But
+// `patches[].resolves[]` asserts *these security issues were fixed*, and that
+// is precisely the sentence somebody would forge. A tool that copied it out of
+// a file in the directory would let anyone mint a document saying a live pickle
+// had been removed, signed with this tool's name in the source field.
+//
+// So a verified derivation is emitted in full, and an unverified one is
+// reduced to a note. The reader still learns a claim exists; no consumer
+// parsing the structure is told a finding was resolved on that claim's word.
+func (s *Server) attachDerivation(art *tessera.Artifact, dir, target string) {
+	label := s.hardenedLabelFor(dir, target, art.PrimaryFile().SHA256)
+	if label == nil {
+		return
+	}
+	prov, _ := harden.ReadProvenance(dir)
+
+	if !label.Verified {
+		note := "This artifact carries a hardening record that this tool did not " +
+			"produce and cannot verify. It is reported here as an unverified claim; " +
+			"no ancestor, change or resolved finding is asserted on its basis."
+		if label.Source != nil && (label.Source.Path != "" || label.Source.Digest != "") {
+			note += " The record names " +
+				cmpOr(label.Source.Path, label.Source.Digest) + " as its source."
+		}
+		art.Derivation = &tessera.Derivation{Unverified: true, Notes: note}
+		return
+	}
+
+	d := &tessera.Derivation{
+		Source: tessera.DerivationSource{
+			Path:   label.Source.Path,
+			SHA256: label.Source.Digest,
+		},
+	}
+	if prov != nil {
+		d.Tool = prov.Tool
+		d.ProducedAt = prov.HardenedAt
+		d.Source.Name = prov.Source.ModelName
+		d.Source.Verdict = prov.Source.Verdict
+		// The history is authoritative on where it came from; the record in the
+		// directory only fills in the parts history does not keep.
+		if d.Source.SHA256 == "" {
+			d.Source.SHA256 = prov.Source.Digest
+		}
+		if d.Source.Path == "" {
+			d.Source.Path = prov.Source.Path
+		}
+	}
+	for _, a := range label.Applied {
+		d.Changes = append(d.Changes, changeFor(a))
+	}
+	art.Derivation = d
+}
+
+// changeFor turns one applied action into a pedigree change, carrying the
+// finding it answers and the weakness class that finding belongs to.
+func changeFor(a harden.Action) tessera.DerivationChange {
+	ch := tessera.DerivationChange{
+		Summary:     string(a.Kind) + " " + a.Path + strings.TrimPrefix(" "+a.Key, " "),
+		Description: a.Why,
+		Consequence: a.Consequence,
+	}
+	if a.Finding == "" {
+		return ch
+	}
+	iss := tessera.DerivationIssue{ID: a.Finding, Description: a.Why}
+	// The CWE reference is what makes this legible to a reader who has never
+	// met this tool's finding identifiers — which, in a document going to
+	// somebody else's organisation, is every reader.
+	if c, ok := tessera.Classify(a.Finding); ok {
+		iss.Name = c.CWEName
+		if c.CWE != "" {
+			iss.References = append(iss.References,
+				"https://cwe.mitre.org/data/definitions/"+c.CWE+".html")
+		}
+		if c.ATLAS != "" {
+			iss.References = append(iss.References,
+				"https://atlas.mitre.org/techniques/"+c.ATLAS)
+		}
+	}
+	ch.Resolves = []tessera.DerivationIssue{iss}
+	return ch
+}
+
+// cmpOr returns the first non-empty string. Small enough to inline, named
+// because the alternative reads worse at the call site.
+func cmpOr(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}

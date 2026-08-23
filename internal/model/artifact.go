@@ -30,6 +30,10 @@ type Artifact struct {
 	Licenses []License `json:"licenses,omitempty"`
 	// Lineage is where the model says it came from.
 	Lineage Lineage `json:"lineage"`
+
+	// Derivation is set when this artifact was produced from another by a
+	// transformation this tool performed, rather than parsed from the file.
+	Derivation *Derivation `json:"derivation,omitempty"`
 	// Params describes the model's shape and training, as measured from the
 	// binary itself.
 	Params Parameters `json:"params"`
@@ -288,4 +292,68 @@ type SeverityCounts struct {
 // Total is every finding counted, whatever its severity.
 func (s SeverityCounts) Total() int32 {
 	return s.Critical + s.High + s.Medium + s.Low + s.Unknown
+}
+
+// Derivation records that this artifact was produced from another one by an
+// automated transformation — today, hardening.
+//
+// Deliberately separate from Lineage. Lineage is what the model's own metadata
+// *claims* about its ancestry: the base model it was fine-tuned from, the
+// datasets it saw. This is what a tool *did*, to specific bytes, at a known
+// time, and it is knowable exactly rather than read off a model card. Merging
+// the two would put a verifiable fact and an unverified assertion in the same
+// list with nothing to tell them apart.
+type Derivation struct {
+	Source  DerivationSource   `json:"source"`
+	Changes []DerivationChange `json:"changes,omitempty"`
+	// ProducedAt is when the derivative was written, RFC 3339 in UTC.
+	ProducedAt string `json:"producedAt,omitempty"`
+	Tool       string `json:"tool,omitempty"`
+	// Notes carries commentary that belongs with the pedigree rather than with
+	// any single change — including, when it applies, the fact that the
+	// derivation could not be verified.
+	Notes string `json:"notes,omitempty"`
+	// Unverified marks a derivation the producer could not confirm it performed.
+	//
+	// Such a derivation is reported but never asserted: no ancestor, no change,
+	// no resolved finding is emitted structurally on its word, because a
+	// consumer reads structure and ignores prose. Only the note survives, which
+	// tells a human a claim exists without telling a machine it is true.
+	Unverified bool `json:"unverified,omitempty"`
+}
+
+// DerivationSource identifies the artifact a derivative came from.
+type DerivationSource struct {
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+	// Path is what an operator called it; useful to a human, not authoritative.
+	Path string `json:"path,omitempty"`
+	// SHA256 is the durable link and the part a reader can check for
+	// themselves. A pedigree naming only a path asserts something unfalsifiable;
+	// naming a digest lets anybody holding the original confirm or refute it.
+	SHA256 string `json:"sha256,omitempty"`
+	PURL   string `json:"purl,omitempty"`
+	// Verdict is what the source scanned as, so the improvement is legible from
+	// the document alone.
+	Verdict string `json:"verdict,omitempty"`
+}
+
+// DerivationChange is one deviation from the source.
+type DerivationChange struct {
+	// Summary is a short mechanical description: "removed tokenizer.pkl".
+	Summary string `json:"summary"`
+	// Description is why it was done.
+	Description string `json:"description,omitempty"`
+	// Consequence states what the change may break.
+	Consequence string `json:"consequence,omitempty"`
+	// Resolves are the findings this change answers.
+	Resolves []DerivationIssue `json:"resolves,omitempty"`
+}
+
+// DerivationIssue is a finding a change resolves.
+type DerivationIssue struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name,omitempty"`
+	Description string   `json:"description,omitempty"`
+	References  []string `json:"references,omitempty"`
 }

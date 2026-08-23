@@ -188,6 +188,31 @@ func SPDX(a *model.Artifact, generatedAt time.Time, tool Tool) ([]byte, error) {
 			"software_downloadLocation": cmp.Or(ref.URL, "NOASSERTION"),
 		})
 	}
+	// A derivation this tool performed is ancestry too, and the more checkable
+	// kind: the base-model list above is whatever the model card claimed, while
+	// this is a transformation with a source digest attached. Both become
+	// descendantOf edges, because that is what SPDX has to say it with — but the
+	// derived source carries a verifiedUsing hash, so a reader can tell which
+	// ancestor is an assertion and which is evidence.
+	if d := a.Derivation; d != nil && !d.Unverified &&
+		(d.Source.SHA256 != "" || d.Source.Name != "" || d.Source.Path != "") {
+		srcID := id("derived-from")
+		node := map[string]any{
+			"type":                      "ai_AIPackage",
+			"spdxId":                    srcID,
+			"creationInfo":              "_:creationinfo",
+			"name":                      cmp.Or(d.Source.Name, d.Source.Path, "source model"),
+			"software_downloadLocation": "NOASSERTION",
+		}
+		if d.Source.SHA256 != "" {
+			node["verifiedUsing"] = []any{hashElement("sha256", d.Source.SHA256)}
+		}
+		if d.Notes != "" {
+			node["comment"] = d.Notes
+		}
+		graph = append(graph, node)
+		ancestorIDs = append(ancestorIDs, srcID)
+	}
 	if len(ancestorIDs) > 0 {
 		relationships = append(relationships, relationship(id, "rel-ancestry",
 			id("model"), "descendantOf", ancestorIDs))
