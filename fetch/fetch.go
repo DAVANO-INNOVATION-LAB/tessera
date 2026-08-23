@@ -78,3 +78,9 @@ func ParseHuggingFaceURI(uri string) (repo, revision string, err error) {
 func RewriteMLflowURI(artifactURI, trackingURL string) (string, bool) {
 	return resolver.RewriteMLflowURI(artifactURI, trackingURL)
 }
+
+// ParseKubeflowURI splits a kubeflow:// URI into its registry host, registered
+// model, and optional version.
+func ParseKubeflowURI(uri string) (host, model, version string, err error) {
+	return resolver.ParseKubeflowURI(uri)
+}

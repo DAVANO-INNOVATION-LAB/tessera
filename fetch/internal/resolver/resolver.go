@@ -53,6 +53,11 @@ func NewRegistry() *Registry {
 	r.Register(&MLflowResolver{})
 	r.Register(&HTTPResolver{scheme: "https"})
 	r.Register(&HTTPResolver{scheme: "http"})
+	// The model registry resolves *through* the others: it turns a registry
+	// entry into whatever URI the bytes actually live at, then hands off. It
+	// therefore holds a reference to this same registry, which is why it is
+	// registered last and by pointer.
+	r.Register(&KubeflowResolver{Registry: r})
 	return r
 }
 
