@@ -137,3 +137,10 @@ type Classification = model.Classification
 // weakness, and giving it a CWE would corrupt any downstream aggregation that
 // treats a CWE as a weakness class.
 func Classify(id string) (Classification, bool) { return model.Classify(id) }
+
+// FindingIDs lists every identifier the tool can emit, sorted.
+//
+// Exported so an interface can label findings without discovering the set by
+// scanning something first — and so a consumer can build a suppression list
+// against real identifiers rather than guessing at them.
+func FindingIDs() []string { return model.FindingIDs() }

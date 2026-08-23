@@ -93,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/connections/{id}/test", s.handleConnectionTest)
 	mux.HandleFunc("GET /api/settings/auth", s.handleAuthSettings)
 	mux.HandleFunc("PUT /api/settings/auth", s.handleAuthSettings)
+	mux.HandleFunc("GET /api/taxonomy", s.handleTaxonomy)
 	mux.HandleFunc("GET /api/suppressions", s.handleSuppressions)
 	mux.HandleFunc("POST /api/suppressions", s.handleSuppressions)
 	mux.HandleFunc("DELETE /api/suppressions/{id}", s.handleSuppression)

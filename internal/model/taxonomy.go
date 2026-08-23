@@ -1,5 +1,7 @@
 package model
 
+import "sort"
+
 // Taxonomy maps Tessera's findings onto vocabularies a security engineer
 // already speaks: CWE, and MITRE ATLAS where a technique genuinely applies.
 //
@@ -192,4 +194,18 @@ var taxonomy = map[string]Classification{
 	// Every one of these says "this was not examined" or "this was not stated".
 	// Giving them a CWE would inflate the coverage number and corrupt any
 	// downstream aggregation that treats a CWE as a weakness class.
+}
+
+// FindingIDs lists every identifier that appears in the taxonomy, sorted.
+//
+// This is the classified set rather than every emittable id: the ten
+// operational findings deliberately carry no classification, and a caller
+// asking for the taxonomy wants the entries that have one.
+func FindingIDs() []string {
+	out := make([]string, 0, len(taxonomy))
+	for id := range taxonomy {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }

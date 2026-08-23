@@ -299,6 +299,12 @@
     .sevdots i.s-Low{background:var(--low)}
     .tax{font-family:var(--mono);font-size:.64rem;color:var(--faint);
       border:1px solid var(--line);border-radius:4px;padding:0 .3rem;margin-left:.35rem}
+
+    .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;
+      align-items:center;justify-content:center;z-index:50;padding:1rem}
+    .modal-card{background:var(--panel);border:1px solid var(--line-2);border-radius:10px;
+      padding:1rem 1.1rem;max-width:34rem;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.35)}
+    .modal-card h3{margin:0 0 .3rem;font-size:1rem}
 </style>
 
 <header>
@@ -522,6 +528,19 @@ function render() {
   if (q) q.addEventListener('input', () => { state.q = q.value.toLowerCase(); renderFindings(); });
 }
 
+// The weakness class, shown where somebody reading a finding will see it. CWE
+// is the vocabulary they already have; TESS-PICKLE-001 is not.
+function taxLine(f) {
+  const c = TAX[f.id];
+  if (!c) return '';
+  const bits = [];
+  if (c.cwe) bits.push(`<span class="tax">CWE-${esc(c.cwe)} ${esc(c.cweName || '')}</span>`);
+  if (c.atlas) bits.push(`<span class="tax">${esc(c.atlas)} ${esc(c.atlasName || '')}</span>`);
+  return bits.length ? `<div style="margin-top:.4rem">${bits.join(' ')}</div>` : '';
+}
+
+let TAX = {};
+
 function renderFindings() {
   const list = el('flist');
   if (!list) return;
@@ -549,7 +568,13 @@ function renderFindings() {
         <span class="ftitle">${esc(f.title)}</span>
         ${f.location ? `<span class="floc" title="${esc(f.location)}">${esc(f.location)}</span>` : ''}
       </button>
-      <div class="fbody">${esc(f.description || 'No further detail.')}</div>
+      <div class="fbody">${esc(f.description || 'No further detail.')}
+        ${taxLine(f)}
+        <div class="row2" style="margin-top:.5rem">
+          <button class="btn" data-accept="${esc(f.id)}"
+            data-loc="${esc(f.location || '')}">Accept this finding&hellip;</button>
+        </div>
+      </div>
     </div>`).join('')
     : `<p class="spin">No findings match this filter.</p>`;
 
@@ -757,6 +782,11 @@ async function renderSettings() {
         <span id="a-msg" class="note"></span></div>
     </div>
 
+    <h2>Accepted findings <span class="count" id="supcount"></span></h2>
+    <p class="hint">Findings somebody reviewed and accepted. They stay in the scan
+      record; they stop appearing in results.</p>
+    <div id="sups"></div>
+
     <h2>Backup</h2>
     <p class="hint">Export this configuration, or restore one. A redacted export
       carries no credentials and cannot bring a connection back to life on its own.</p>
@@ -773,6 +803,7 @@ async function renderSettings() {
     </div>`;
 
   wireSettings();
+  renderSuppressions();
 }
 
 function connCard(c) {
@@ -861,6 +892,8 @@ function wireSettings() {
   });
 }
 
+fetch('/api/taxonomy').then(r => r.json()).then(t => { TAX = t || {}; }).catch(() => {});
+
 fetch('/api/browse?path=').then(r => r.json()).then(d => {
   el('root').textContent = d.root || '';
 });
@@ -868,6 +901,109 @@ fetch('/api/browse?path=').then(r => r.json()).then(d => {
 // Open whatever the URL names. This is what makes a result shareable, and it is
 // also the only way something without a mouse — a screenshot runner, a smoke
 // test — can reach a rendered analysis.
+/* ── accepting a finding ─────────────────────────────────────────────── */
+//
+// A reason is required by the server and asked for here, because an unexplained
+// waiver is indistinguishable from a mistake when somebody reads it later. The
+// expiry default is 90 days rather than never: a waiver that lapses gets
+// reviewed, and one that does not gets forgotten.
+
+document.addEventListener('click', async (ev) => {
+  const b = ev.target.closest('[data-accept]');
+  if (!b) return;
+  ev.preventDefault();
+  openAcceptDialog(b.dataset.accept, b.dataset.loc || '');
+});
+
+function openAcceptDialog(findingId, location) {
+  const dlg = document.createElement('div');
+  dlg.className = 'modal';
+  const in90 = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
+  dlg.innerHTML = `
+    <div class="modal-card">
+      <h3>Accept ${esc(findingId)}</h3>
+      <p class="note">The finding stays in the scan record and stops appearing here.
+        Nothing is deleted.</p>
+      <div class="field"><label>reason (required)</label>
+        <input id="s-reason" placeholder="why this is acceptable">
+        <span class="hint">Somebody will read this a year from now without you there
+          to explain it.</span></div>
+      <div class="grid2">
+        <div class="field"><label>scope</label>
+          <select id="s-scope">
+            <option value="all">every model</option>
+            ${location ? `<option value="loc" selected>only ${esc(location)}</option>` : ''}
+            <option value="digest">only this artifact</option>
+          </select></div>
+        <div class="field"><label>expires</label>
+          <input id="s-exp" type="date" value="${in90}">
+          <span class="hint">Clear it to never expire.</span></div>
+      </div>
+      <div class="row2" style="margin-top:.6rem">
+        <button class="btn primary" id="s-ok">Accept</button>
+        <button class="btn" id="s-cancel">Cancel</button>
+        <span id="s-msg" class="note"></span>
+      </div>
+    </div>`;
+  document.body.appendChild(dlg);
+
+  const close = () => dlg.remove();
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); });
+  dlg.querySelector('#s-cancel').addEventListener('click', close);
+  dlg.querySelector('#s-reason').focus();
+
+  dlg.querySelector('#s-ok').addEventListener('click', async () => {
+    const scope = dlg.querySelector('#s-scope').value;
+    const exp = dlg.querySelector('#s-exp').value;
+    const body = {
+      findingId,
+      reason: dlg.querySelector('#s-reason').value,
+      location: scope === 'loc' ? location : '',
+      digest: scope === 'digest' ? (state?.data?.artifact?.files?.[0]?.sha256 || '') : '',
+      expiresAt: exp ? new Date(exp + 'T00:00:00Z').toISOString() : '',
+    };
+    const res = await fetch('/api/suppressions', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)});
+    const out = await res.json();
+    if (out.error) { dlg.querySelector('#s-msg').textContent = out.error; return; }
+    close();
+    if (current) analyse(current);
+  });
+}
+
+/* Accepted findings, listed where they can be reviewed and lifted. */
+async function renderSuppressions() {
+  const box = el('sups');
+  if (!box) return;
+  const d = await (await fetch('/api/suppressions')).json();
+  if (d.error) { box.innerHTML = `<p class="note">${esc(d.error)}</p>`; return; }
+  const list = d.suppressions || [];
+  if (!list.length) { box.innerHTML = '<p class="spin">Nothing accepted yet.</p>'; return; }
+
+  box.innerHTML = list.map(x => {
+    const perm = !x.expiresAt;
+    return `<div class="card">
+      <div class="row2">
+        <div class="grow"><h3>${esc(x.findingId)}</h3>
+          <div class="meta">${x.location ? esc(x.location) + ' · ' : ''}${
+            x.digest ? 'this artifact only · ' : 'every model · '}${
+            perm ? 'never expires' : 'until ' + esc((x.expiresAt || '').slice(0, 10))}</div></div>
+        ${perm ? '<span class="pill bad">permanent</span>' : '<span class="pill ok">time-boxed</span>'}
+        <button class="btn danger" data-unsup="${esc(x.id)}">Lift</button>
+      </div>
+      <p class="note">${esc(x.reason)}${x.by ? ' — ' + esc(x.by) : ''}</p>
+    </div>`;
+  }).join('');
+
+  box.addEventListener('click', async (ev) => {
+    const u = ev.target.closest('[data-unsup]');
+    if (!u) return;
+    await fetch(`/api/suppressions/${encodeURIComponent(u.dataset.unsup)}`, {method: 'DELETE'});
+    renderSuppressions();
+  });
+}
+
 /* ── inventory: the estate, worst first ─────────────────────────────── */
 //
 // This is the view a security engineer opens a tool expecting, and it exists

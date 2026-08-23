@@ -177,3 +177,23 @@ func (s *Server) currentUser(r *http.Request) string {
 	}
 	return v.(session).Email
 }
+
+// handleTaxonomy hands the interface the CWE and ATLAS table once, so every
+// finding can be labelled without a lookup per finding.
+//
+// Served whether or not a store is configured: the mapping is a property of the
+// tool, not of anyone's deployment.
+func (s *Server) handleTaxonomy(w http.ResponseWriter, r *http.Request) {
+	out := map[string]any{}
+	for _, id := range tessera.FindingIDs() {
+		c, ok := tessera.Classify(id)
+		if !ok {
+			continue
+		}
+		out[id] = map[string]string{
+			"cwe": c.CWE, "cweName": c.CWEName,
+			"atlas": c.ATLAS, "atlasName": c.ATLASName,
+		}
+	}
+	writeJSON(w, out)
+}
