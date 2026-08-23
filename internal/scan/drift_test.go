@@ -208,3 +208,46 @@ func TestDriftParameterCount(t *testing.T) {
 		})
 	}
 }
+
+// A GGUF that contradicts its own header needs no sidecar to be caught.
+//
+// The other drift checks compare the model against a claim made beside it. This
+// one is the file disagreeing with itself: general.file_type says one thing and
+// the tensor block right after it says another, and no corroborating metadata
+// can reconcile that.
+func TestGGUFContradictingItsOwnHeaderIsReported(t *testing.T) {
+	a := &model.Artifact{
+		Format:   model.FormatGGUF,
+		Licenses: []model.License{{SPDXID: "MIT"}},
+		Files:    []model.FileComponent{{Path: "model.gguf", Role: "primary"}},
+	}
+	a.Params.Quantization = "F16" // what general.file_type declares
+	a.Params.DType = "Q4_K"       // what the tensors actually are
+
+	if !has(Analyze(a), DriftDType) {
+		t.Error("a file declaring F16 over Q4_K tensors was not reported")
+	}
+
+	// And agreement must stay silent, or the check is noise on every model.
+	a.Params.DType = "F16"
+	if has(Analyze(a), DriftDType) {
+		t.Error("a file whose header matches its tensors was reported")
+	}
+}
+
+// general.parameter_count is a number precise enough to be wrong, and reading
+// only general.size_label ("8B", a family name) meant a file could declare four
+// billion parameters over two million of tensor with nothing to say so.
+func TestDeclaredParameterCountPrefersTheNumberOverTheLabel(t *testing.T) {
+	a := &model.Artifact{
+		Format:   model.FormatGGUF,
+		Licenses: []model.License{{SPDXID: "MIT"}},
+		Files:    []model.FileComponent{{Path: "model.gguf", Role: "primary"}},
+	}
+	a.Params.ParameterCount = "4000000000"
+	a.Params.MeasuredParameters = 2097152
+
+	if !has(Analyze(a), DriftParameterCount) {
+		t.Error("a declared count 1900x the measured one was not reported")
+	}
+}

@@ -129,3 +129,18 @@ jobs:
             echo "a Critical finding must exit 3, got $got"; exit 1
           fi
           echo "critical -> exit 3 (correct)"
+
+  bench:
+    name: benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      # Measured, not asserted. The gate compares against the committed
+      # baseline and fails only when something that used to be correct no
+      # longer is — a gate that fired on any change at all gets switched off.
+      - name: Grade against the labeled corpus
+        working-directory: bench
+        run: go run ./cmd/tessera-bench run --baseline baselines/current.json

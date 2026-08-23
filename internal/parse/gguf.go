@@ -404,7 +404,12 @@ func applyGGUFMetadata(a *model.Artifact, kv map[string]string, kvList map[strin
 
 	a.Params.Architecture = kv["general.architecture"]
 	a.Params.ArchitectureFamily = kv["general.architecture"]
-	a.Params.ParameterCount = kv["general.size_label"]
+	// size_label is a family name ("8B") and parameter_count is a number. Prefer
+	// the number: it is the claim precise enough to be wrong, and a file
+	// asserting a count its own tensors do not add up to is the case worth
+	// catching. Reading only the label meant a GGUF could declare four billion
+	// parameters over two million of tensor and nothing would say so.
+	a.Params.ParameterCount = cmp.Or(kv["general.parameter_count"], kv["general.size_label"])
 	if ft := kv["general.file_type"]; ft != "" {
 		a.Params.Quantization = ggufFileType(ft)
 	}

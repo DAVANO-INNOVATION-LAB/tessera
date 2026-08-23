@@ -1,0 +1,88 @@
+{
+  "runAt": "2026-08-23T01:21:03Z",
+  "cases": 10,
+  "labels": 27,
+  "results": [
+    {
+      "case": "clean-gguf",
+      "why": "A well-formed model whose declarations match its tensors. The most important case in the corpus: everything here is a false positive, and a scanner that reports anything has failed.",
+      "found": null
+    },
+    {
+      "case": "precision-drift",
+      "why": "Declares F16 while every tensor is Q4_K. Precision drives memory, throughput and accuracy, so a quantized model presented as full precision misrepresents all three. This is the axis no scanner that only reads headers can see.",
+      "found": [
+        "TESS-DRIFT-002",
+        "TESS-LIC-001"
+      ]
+    },
+    {
+      "case": "parameter-drift",
+      "why": "Declares 7 billion parameters and carries two million. Requires summing tensor shapes rather than trusting general.parameter_count.",
+      "found": [
+        "TESS-DRIFT-007",
+        "TESS-LIC-001"
+      ]
+    },
+    {
+      "case": "executable-chat-template",
+      "why": "A chat template that reaches for the interpreter. The template ships inside the metadata block and runs where the model is served.",
+      "found": [
+        "TESS-GGUF-010",
+        "TESS-LIC-001"
+      ]
+    },
+    {
+      "case": "benign-chat-template",
+      "why": "TRAP. An ordinary Jinja chat template with loops and conditionals. Templates are normal; a scanner that flags every template is unusable on real models.",
+      "found": [
+        "TESS-LIC-001"
+      ]
+    },
+    {
+      "case": "pickle-beside-model",
+      "why": "A protocol-2 pickle carrying a GLOBAL opcode, sitting next to a clean model. Found only by walking the directory, not by parsing the model file.",
+      "found": [
+        "TESS-DRIFT-006",
+        "TESS-LIC-001",
+        "TESS-PICKLE-001"
+      ]
+    },
+    {
+      "case": "not-really-a-pickle",
+      "why": "TRAP. A file named .pkl that is plain text. Extension-based detection reports it; reading the bytes does not. This is the exact failure mode published against picklescan.",
+      "found": [
+        "TESS-DRIFT-006",
+        "TESS-LIC-001",
+        "TESS-PICKLE-003"
+      ]
+    },
+    {
+      "case": "trust-remote-code",
+      "why": "config.json enables trust_remote_code, which runs code shipped with the weights.",
+      "found": [
+        "TESS-HF-001",
+        "TESS-LIC-001"
+      ]
+    },
+    {
+      "case": "trust-remote-code-disabled",
+      "why": "TRAP. The key is present and false. Matching on the key name rather than the value reports it; that is a false positive on a correctly configured model.",
+      "found": [
+        "TESS-LIC-001"
+      ]
+    },
+    {
+      "case": "config-declares-other-precision",
+      "why": "config.json says float16 while the tensors are Q4_K. The declaration lives beside the model rather than inside it, so this needs both files read and reconciled.",
+      "found": [
+        "TESS-DRIFT-002",
+        "TESS-LIC-001"
+      ]
+    }
+  ],
+  "truePositives": 6,
+  "falseNegatives": 0,
+  "falsePositives": 0,
+  "trueNegatives": 21
+}

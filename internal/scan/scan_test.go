@@ -15,25 +15,52 @@ func has(findings []model.Finding, id string) bool {
 	return false
 }
 
-func TestGGUFChatTemplate(t *testing.T) {
-	a := &model.Artifact{
-		Format:   model.FormatGGUF,
-		Licenses: []model.License{{SPDXID: "MIT"}},
-		Raw:      map[string]string{"tokenizer.chat_template": "{% if x %}{{ x }}{% endif %}"},
-	}
-	if !has(Analyze(a), "TESS-GGUF-010") {
-		t.Errorf("active Jinja template should be flagged")
+// The line this check has to draw: control flow is what a chat template IS,
+// and reaching for the interpreter is what an attack is.
+//
+// An earlier version flagged any "{%", which meant a High-severity finding on
+// substantially every instruction-tuned model — every one of them opens with
+// {% for message in messages %}. That does not make a fleet safe. It teaches a
+// reviewer to click past this finding on all thousand models before they reach
+// the one that matters.
+func TestGGUFChatTemplateSeparatesControlFlowFromEscapes(t *testing.T) {
+	tmpl := func(s string) *model.Artifact {
+		return &model.Artifact{
+			Format:   model.FormatGGUF,
+			Licenses: []model.License{{SPDXID: "MIT"}},
+			Raw:      map[string]string{"tokenizer.chat_template": s},
+		}
 	}
 
-	// A plain substitution template must NOT be flagged — that would be noise on
-	// nearly every instruct model.
-	b := &model.Artifact{
-		Format:   model.FormatGGUF,
-		Licenses: []model.License{{SPDXID: "MIT"}},
-		Raw:      map[string]string{"tokenizer.chat_template": "{{ system }} {{ prompt }}"},
+	// Ordinary templates. Every one of these is what a real instruct model
+	// ships, and flagging any of them is a false positive on the whole fleet.
+	for _, benign := range []string{
+		"{{ system }} {{ prompt }}",
+		"{% for m in messages %}{{ m['role'] }}: {{ m['content'] }}\n{% endfor %}",
+		"{% if system %}{{ system }}{% endif %}{% for m in messages %}{{ m.content }}{% endfor %}",
+		"{% set loop_messages = messages %}{% for message in loop_messages %}{{ message }}{% endfor %}",
+		"{%- for message in messages -%}{{ message.content | trim }}{%- endfor -%}",
+	} {
+		if has(Analyze(tmpl(benign)), "TESS-GGUF-010") {
+			t.Errorf("flagged an ordinary chat template:\n  %s", benign)
+		}
 	}
-	if has(Analyze(b), "TESS-GGUF-010") {
-		t.Errorf("plain substitution template should not be flagged")
+
+	// Escapes. Each of these is a published route from a template to the
+	// interpreter; missing one is the failure that matters.
+	for _, hostile := range []string{
+		"{{ self.__init__.__globals__['os'].system('id') }}",
+		"{{ ''.__class__.__mro__[1].__subclasses__() }}",
+		"{{ lipsum.__globals__.os.popen('id').read() }}",
+		"{% for x in cycler.__init__.__globals__ %}{{ x }}{% endfor %}",
+		"{% import 'other.jinja' as o %}{{ o.run() }}",
+		"{% include 'payload.jinja' %}",
+		"{{ namespace(a=1) }}",
+		"{{ config.items() }}{{ subprocess }}",
+	} {
+		if !has(Analyze(tmpl(hostile)), "TESS-GGUF-010") {
+			t.Errorf("missed a template that reaches the interpreter:\n  %s", hostile)
+		}
 	}
 }
 

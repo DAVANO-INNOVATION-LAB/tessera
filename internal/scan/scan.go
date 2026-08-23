@@ -137,7 +137,48 @@ func hasResolvedLicense(a *model.Artifact) bool {
 // looksLikeActiveJinja reports whether a template string contains Jinja control
 // logic ({% ... %}) rather than only plain substitutions ({{ ... }}). Control
 // constructs are what a sandbox-escape payload needs.
+// looksLikeActiveJinja reports whether a chat template reaches for the
+// interpreter, as opposed to merely formatting messages.
+//
+// The distinction is the whole value of the check, and an earlier version got
+// it backwards by treating any "{%" as evidence. Every instruction-tuned model
+// ships a template that opens with {% for message in messages %} — control flow
+// is what a chat template *is*. Flagging it made this a High-severity finding on
+// substantially every chat model in existence, which does not make a fleet safe;
+// it makes the finding noise, and a reviewer who sees it on all thousand models
+// learns to click past it before reaching the one that matters.
+//
+// What actually distinguishes an attack (CVE-2024-34359, "Llama Drama") is a
+// template escaping the sandbox to reach Python: attribute traversal through
+// dunders, the known SSTI gadget objects, or pulling in another template. A
+// formatting template needs none of those.
 func looksLikeActiveJinja(s string) bool {
-	return strings.Contains(s, "{%") ||
-		strings.Contains(s, "{{") && (strings.Contains(s, ".__") || strings.Contains(s, "namespace(") || strings.Contains(s, "cycler"))
+	// Dunder traversal is the universal signature: __globals__, __class__,
+	// __subclasses__, __init__ are how every published escape gets from a
+	// template object to the interpreter.
+	if strings.Contains(s, "__") {
+		return true
+	}
+	// Gadget objects Jinja exposes that are only useful as a bridge to Python.
+	for _, gadget := range []string{"namespace(", "cycler", "lipsum", "joiner"} {
+		if strings.Contains(s, gadget) {
+			return true
+		}
+	}
+	// Loading another template moves the logic somewhere this file cannot show
+	// a reviewer, which defeats the point of reading the template at all.
+	for _, tag := range []string{"{% import", "{%import", "{% from", "{%from",
+		"{% extends", "{%extends", "{% include", "{%include"} {
+		if strings.Contains(s, tag) {
+			return true
+		}
+	}
+	// Direct reaches for process and evaluation primitives.
+	for _, call := range []string{"os.", "subprocess", "popen", "system(",
+		"eval(", "exec(", "importlib", "builtins"} {
+		if strings.Contains(s, call) {
+			return true
+		}
+	}
+	return false
 }

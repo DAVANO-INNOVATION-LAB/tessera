@@ -1,0 +1,150 @@
+[
+  {
+    "name": "clean-gguf",
+    "why": "A well-formed model whose declarations match its tensors. The most important case in the corpus: everything here is a false positive, and a scanner that reports anything has failed.",
+    "gguf": {
+      "name": "Clean-7B", "architecture": "llama", "author": "Davano",
+      "organization": "Davano Innovation Lab", "license": "apache-2.0",
+      "fileType": "F16", "declaredParams": 2097152,
+      "tensors": [
+        {"name": "blk.0.attn_q.weight", "dims": [1024, 1024], "type": "F16"},
+        {"name": "blk.0.attn_k.weight", "dims": [1024, 1024], "type": "F16"}
+      ]
+    },
+    "expect": [],
+    "forbid": ["TESS-DRIFT-002", "TESS-DRIFT-007", "TESS-GGUF-010", "TESS-PICKLE-001", "TESS-HF-001"]
+  },
+  {
+    "name": "precision-drift",
+    "why": "Declares F16 while every tensor is Q4_K. Precision drives memory, throughput and accuracy, so a quantized model presented as full precision misrepresents all three. This is the axis no scanner that only reads headers can see.",
+    "gguf": {
+      "name": "Drifty-7B", "architecture": "llama", "fileType": "F16",
+      "declaredParams": 2097152,
+      "tensors": [
+        {"name": "blk.0.attn_q.weight", "dims": [1024, 1024], "type": "Q4_K"},
+        {"name": "blk.0.attn_k.weight", "dims": [1024, 1024], "type": "Q4_K"}
+      ]
+    },
+    "expect": ["TESS-DRIFT-002"],
+    "forbid": ["TESS-PICKLE-001", "TESS-HF-001"]
+  },
+  {
+    "name": "parameter-drift",
+    "why": "Declares 7 billion parameters and carries two million. Requires summing tensor shapes rather than trusting general.parameter_count.",
+    "gguf": {
+      "name": "Inflated-7B", "architecture": "llama", "fileType": "F16",
+      "declaredParams": 4000000000,
+      "tensors": [
+        {"name": "blk.0.attn_q.weight", "dims": [1024, 1024], "type": "F16"},
+        {"name": "blk.0.attn_k.weight", "dims": [1024, 1024], "type": "F16"}
+      ]
+    },
+    "expect": ["TESS-DRIFT-007"],
+    "forbid": ["TESS-PICKLE-001"]
+  },
+  {
+    "name": "executable-chat-template",
+    "why": "A chat template that reaches for the interpreter. The template ships inside the metadata block and runs where the model is served.",
+    "gguf": {
+      "name": "Templated-7B", "architecture": "llama", "fileType": "F16",
+      "declaredParams": 2097152,
+      "chatTemplate": "{{ self.__init__.__globals__['os'].system('id') }}",
+      "tensors": [
+        {"name": "blk.0.attn_q.weight", "dims": [1024, 1024], "type": "F16"},
+        {"name": "blk.0.attn_k.weight", "dims": [1024, 1024], "type": "F16"}
+      ]
+    },
+    "expect": ["TESS-GGUF-010"],
+    "forbid": ["TESS-PICKLE-001"]
+  },
+  {
+    "name": "benign-chat-template",
+    "why": "TRAP. An ordinary Jinja chat template with loops and conditionals. Templates are normal; a scanner that flags every template is unusable on real models.",
+    "gguf": {
+      "name": "Normal-7B", "architecture": "llama", "fileType": "F16",
+      "declaredParams": 2097152,
+      "chatTemplate": "{% for m in messages %}{% if m['role'] == 'user' %}User: {{ m['content'] }}{% else %}Assistant: {{ m['content'] }}{% endif %}{% endfor %}",
+      "tensors": [
+        {"name": "blk.0.attn_q.weight", "dims": [1024, 1024], "type": "F16"},
+        {"name": "blk.0.attn_k.weight", "dims": [1024, 1024], "type": "F16"}
+      ]
+    },
+    "expect": [],
+    "forbid": ["TESS-GGUF-010", "TESS-DRIFT-002", "TESS-DRIFT-007"]
+  },
+  {
+    "name": "pickle-beside-model",
+    "why": "A protocol-2 pickle carrying a GLOBAL opcode, sitting next to a clean model. Found only by walking the directory, not by parsing the model file.",
+    "gguf": {
+      "name": "Clean-7B", "architecture": "llama", "fileType": "F16",
+      "declaredParams": 2097152,
+      "tensors": [
+        {"name": "blk.0.attn_q.weight", "dims": [1024, 1024], "type": "F16"},
+        {"name": "blk.0.attn_k.weight", "dims": [1024, 1024], "type": "F16"}
+      ]
+    },
+    "files": {"tokenizer.pkl": "\\x80\\x02cos\\nsystem\\nq\\x00X\\x02\\x00\\x00\\x00idq\\x01\\x85q\\x02Rq\\x03."},
+    "expect": ["TESS-PICKLE-001"],
+    "forbid": ["TESS-DRIFT-002", "TESS-GGUF-010"]
+  },
+  {
+    "name": "not-really-a-pickle",
+    "why": "TRAP. A file named .pkl that is plain text. Extension-based detection reports it; reading the bytes does not. This is the exact failure mode published against picklescan.",
+    "gguf": {
+      "name": "Clean-7B", "architecture": "llama", "fileType": "F16",
+      "declaredParams": 2097152,
+      "tensors": [
+        {"name": "blk.0.attn_q.weight", "dims": [1024, 1024], "type": "F16"},
+        {"name": "blk.0.attn_k.weight", "dims": [1024, 1024], "type": "F16"}
+      ]
+    },
+    "files": {"notes.pkl": "this is not a pickle, it is a text file with a misleading name\\n"},
+    "expect": [],
+    "forbid": ["TESS-PICKLE-001", "TESS-DRIFT-002"]
+  },
+  {
+    "name": "trust-remote-code",
+    "why": "config.json enables trust_remote_code, which runs code shipped with the weights.",
+    "gguf": {
+      "name": "Remote-7B", "architecture": "llama", "fileType": "F16",
+      "declaredParams": 2097152,
+      "tensors": [
+        {"name": "blk.0.attn_q.weight", "dims": [1024, 1024], "type": "F16"},
+        {"name": "blk.0.attn_k.weight", "dims": [1024, 1024], "type": "F16"}
+      ]
+    },
+    "config": {"model_type": "llama", "trust_remote_code": true, "torch_dtype": "float16"},
+    "expect": ["TESS-HF-001"],
+    "forbid": ["TESS-PICKLE-001"]
+  },
+  {
+    "name": "trust-remote-code-disabled",
+    "why": "TRAP. The key is present and false. Matching on the key name rather than the value reports it; that is a false positive on a correctly configured model.",
+    "gguf": {
+      "name": "Safe-7B", "architecture": "llama", "fileType": "F16",
+      "declaredParams": 2097152,
+      "tensors": [
+        {"name": "blk.0.attn_q.weight", "dims": [1024, 1024], "type": "F16"},
+        {"name": "blk.0.attn_k.weight", "dims": [1024, 1024], "type": "F16"}
+      ]
+    },
+    "config": {"model_type": "llama", "trust_remote_code": false, "torch_dtype": "float16"},
+    "expect": [],
+    "forbid": ["TESS-HF-001", "TESS-DRIFT-002"]
+  },
+  {
+    "name": "config-declares-other-precision",
+    "why": "config.json says float16 while the tensors are Q4_K. The declaration lives beside the model rather than inside it, so this needs both files read and reconciled.",
+    "gguf": {
+      "name": "Mixed-7B", "architecture": "llama", "fileType": "Q4_K",
+      "declaredParams": 2097152,
+      "tensors": [
+        {"name": "blk.0.attn_q.weight", "dims": [1024, 1024], "type": "Q4_K"},
+        {"name": "blk.0.attn_k.weight", "dims": [1024, 1024], "type": "Q4_K"}
+      ]
+    },
+    "config": {"model_type": "llama", "torch_dtype": "float16"},
+    "expect": ["TESS-DRIFT-002"],
+    "forbid": ["TESS-HF-001", "TESS-PICKLE-001"]
+  }
+]

@@ -47,6 +47,7 @@ func analyzeDrift(a *model.Artifact) []model.Finding {
 	var out []model.Finding
 	out = append(out, driftArchitecture(a)...)
 	out = append(out, driftDType(a)...)
+	out = append(out, driftSelfDeclaredPrecision(a)...)
 	out = append(out, driftQuantization(a)...)
 	out = append(out, driftShardCount(a)...)
 	out = append(out, driftMixedFormats(a)...)
@@ -315,4 +316,36 @@ func maxRatio(r float64) float64 {
 		return 1 / r
 	}
 	return r
+}
+
+// driftSelfDeclaredPrecision catches a file that contradicts itself.
+//
+// The other drift checks compare the model against a claim made *beside* it —
+// config.json, a model card. This one needs no sidecar at all: GGUF records
+// general.file_type in its own header, and the tensor block right after it says
+// what the tensors really are. A file claiming F16 over Q4_K tensors is not a
+// disagreement between two documents; it is one document disagreeing with
+// itself, which no amount of corroborating metadata can explain away.
+//
+// It is also the case a scanner that stops at the header cannot see, because
+// both halves are needed and only one of them is cheap to read.
+func driftSelfDeclaredPrecision(a *model.Artifact) []model.Finding {
+	// Only meaningful where the format states a precision of its own. On
+	// safetensors and ONNX, Quantization is derived rather than declared, so
+	// comparing it with the tensors would be comparing a value with itself.
+	if a.Format != model.FormatGGUF {
+		return nil
+	}
+	declared, measured := a.Params.Quantization, a.Params.DType
+	if declared == "" || measured == "" || dtypeAgrees(declared, measured) {
+		return nil
+	}
+	return []model.Finding{{
+		ID: DriftDType, Title: "Declared precision does not match the tensors",
+		Severity: "High", Category: "drift", Location: a.PrimaryFile().Path,
+		Description: fmt.Sprintf("the file's own general.file_type declares %q while its tensor "+
+			"headers report %q holds the most parameters. Precision drives memory, throughput and "+
+			"accuracy, and this is the file contradicting itself rather than disagreeing with a "+
+			"sidecar, so no other metadata can reconcile it.", declared, measured),
+	}}
 }
