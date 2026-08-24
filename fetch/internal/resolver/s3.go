@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -24,7 +25,13 @@ import (
 // Credentials come from the standard environment (AWS_ACCESS_KEY_ID,
 // AWS_SECRET_ACCESS_KEY, AWS_REGION, AWS_S3_ENDPOINT) that the scan job
 // projects from the model's connection Secret.
-type S3Resolver struct{}
+type S3Resolver struct {
+	// Limits bounds what is fetched. Zero uses DefaultSamplingLimits.
+	//
+	// Object storage is where models actually live in a cluster, so this is the
+	// backend where reading only the headers matters most.
+	Limits SamplingLimits
+}
 
 // Scheme implements Resolver.
 func (s *S3Resolver) Scheme() string { return "s3" }
@@ -56,8 +63,12 @@ func (s *S3Resolver) Resolve(ctx context.Context, uri, destDir string) (*Artifac
 		return nil, fmt.Errorf("create staging dir: %w", err)
 	}
 
+	lim := s.Limits.withDefaults()
+	cov := &Coverage{Skipped: map[string]string{}}
+
 	var (
 		total  int64
+		files  int
 		keys   []string
 		hasher = sha256.New()
 	)
@@ -87,23 +98,56 @@ func (s *S3Resolver) Resolve(ctx context.Context, uri, destDir string) (*Artifac
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return nil, fmt.Errorf("create staging subdir: %w", err)
 			}
-			f, err := os.Create(target)
-			if err != nil {
-				return nil, fmt.Errorf("create %s: %w", target, err)
+			// Decide before moving any bytes. A bucket holding a frontier
+			// model is hundreds of gigabytes of tensor data whose only
+			// inspectable part is a header at byte zero; pulling it whole to
+			// read that header is the difference between a scan costing
+			// kilobytes and costing the model.
+			size := aws.ToInt64(obj.Size)
+			what, why := planFor(rel, size, total, lim)
+			if what == planSkip {
+				cov.Skipped[rel] = why
+				keys = append(keys, fmt.Sprintf("%s:%s", key, aws.ToString(obj.ETag)))
+				continue
 			}
-			n, err := downloader.Download(ctx, f, &s3.GetObjectInput{ //nolint:staticcheck // SA1019: see newS3Client note
-				Bucket: aws.String(bucket),
-				Key:    aws.String(key),
-			})
-			closeErr := f.Close()
-			if err != nil {
-				return nil, fmt.Errorf("download s3://%s/%s: %w", bucket, key, err)
-			}
-			if closeErr != nil {
-				return nil, fmt.Errorf("close %s: %w", target, closeErr)
+
+			var n int64
+			if what == planHeader {
+				body, err := sampleHeader(rel, func(_ string, off, length int64) ([]byte, error) {
+					return s3Range(ctx, client, bucket, key, off, length)
+				}, lim.HeaderBytes)
+				if err != nil {
+					return nil, err
+				}
+				if err := os.WriteFile(target, body, 0o644); err != nil {
+					return nil, fmt.Errorf("write %s: %w", target, err)
+				}
+				n = int64(len(body))
+				cov.HeaderOnly = append(cov.HeaderOnly, rel)
+			} else {
+				f, err := os.Create(target)
+				if err != nil {
+					return nil, fmt.Errorf("create %s: %w", target, err)
+				}
+				n, err = downloader.Download(ctx, f, &s3.GetObjectInput{ //nolint:staticcheck // SA1019: see newS3Client note
+					Bucket: aws.String(bucket),
+					Key:    aws.String(key),
+				})
+				closeErr := f.Close()
+				if err != nil {
+					return nil, fmt.Errorf("download s3://%s/%s: %w", bucket, key, err)
+				}
+				if closeErr != nil {
+					return nil, fmt.Errorf("close %s: %w", target, closeErr)
+				}
+				cov.FetchedWhole = append(cov.FetchedWhole, rel)
 			}
 			total += n
+			files++
 			keys = append(keys, fmt.Sprintf("%s:%s", key, aws.ToString(obj.ETag)))
+			if files >= lim.MaxFiles {
+				break
+			}
 		}
 	}
 
@@ -118,12 +162,20 @@ func (s *S3Resolver) Resolve(ctx context.Context, uri, destDir string) (*Artifac
 		hasher.Write([]byte(k))
 	}
 
+	// A partial fetch has to say so. A scan that read a header and reported
+	// nothing is not the same as a scan that read the file and found nothing,
+	// and the difference has to survive into the report or the optimisation is
+	// bought with a lie.
+	sort.Strings(cov.HeaderOnly)
+	sort.Strings(cov.FetchedWhole)
+
 	return &Artifact{
 		URI:       uri,
 		Digest:    "sha256:" + hex.EncodeToString(hasher.Sum(nil)),
 		MediaType: "application/vnd.assay.model-prefix",
 		LocalPath: destDir,
 		SizeBytes: total,
+		Coverage:  cov,
 	}, nil
 }
 
@@ -168,4 +220,25 @@ func firstEnv(keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// s3Range reads one byte range of an object.
+//
+// The whole point of the sampling strategy: a safetensors header is a few
+// kilobytes at offset zero, and S3 will serve exactly those bytes rather than
+// the forty gigabytes behind them.
+func s3Range(ctx context.Context, client *s3.Client, bucket, key string, off, length int64) ([]byte, error) {
+	if length <= 0 {
+		return nil, nil
+	}
+	out, err := client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", off, off+length-1)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("range read s3://%s/%s: %w", bucket, key, err)
+	}
+	defer out.Body.Close()
+	return io.ReadAll(io.LimitReader(out.Body, length))
 }

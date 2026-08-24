@@ -118,6 +118,13 @@ func copyTree(src, destDir string, info os.FileInfo) error {
 			// Skipped deliberately; see the note above.
 			return nil
 		case fi.Mode().IsRegular():
+			// Header-inspectable formats are staged only as far as their header.
+			// Copying a forty-gigabyte safetensors from a claim into a pod's
+			// emptyDir, once per scanner, to read a header measured in kilobytes is
+			// the same waste as downloading it — it just happens on local disk.
+			if HeaderInspectable(rel) {
+				return copyHeader(path, target, DefaultSamplingLimits().HeaderBytes)
+			}
 			return copyFile(path, target)
 		default:
 			// Devices, sockets, and pipes are not model data.
@@ -281,4 +288,34 @@ func treeDigest(root string) (string, int64, error) {
 		fmt.Fprintf(top, "%s %s\n", e.hash, e.rel)
 	}
 	return "sha256:" + hex.EncodeToString(top.Sum(nil)), total, nil
+}
+
+// copyHeader stages only the leading bytes of a file whose risk lives in its
+// header.
+//
+// Uses the same two-step as the network resolvers: safetensors declares its own
+// header length, so exactly that much is read; anything else falls back to a
+// bounded prefix.
+func copyHeader(src, target string, fallback int64) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", src, err)
+	}
+	defer in.Close()
+
+	body, err := sampleHeader(src, func(_ string, off, length int64) ([]byte, error) {
+		if _, err := in.Seek(off, io.SeekStart); err != nil {
+			return nil, err
+		}
+		buf := make([]byte, length)
+		n, err := io.ReadFull(in, buf)
+		if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+			return nil, err
+		}
+		return buf[:n], nil
+	}, fallback)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(target, body, 0o644)
 }
