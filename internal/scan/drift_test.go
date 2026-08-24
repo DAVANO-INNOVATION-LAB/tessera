@@ -224,13 +224,13 @@ func TestGGUFContradictingItsOwnHeaderIsReported(t *testing.T) {
 	a.Params.Quantization = "F16" // what general.file_type declares
 	a.Params.DType = "Q4_K"       // what the tensors actually are
 
-	if !has(Analyze(a), DriftDType) {
+	if !has(Analyze(a), DriftSelfDeclared) {
 		t.Error("a file declaring F16 over Q4_K tensors was not reported")
 	}
 
 	// And agreement must stay silent, or the check is noise on every model.
 	a.Params.DType = "F16"
-	if has(Analyze(a), DriftDType) {
+	if has(Analyze(a), DriftSelfDeclared) {
 		t.Error("a file whose header matches its tensors was reported")
 	}
 }

@@ -175,6 +175,7 @@ var taxonomy = map[string]Classification{
 	// named only where a mismatch could conceal one.
 	"TESS-DRIFT-001": {cweUnverifiedOrigin, "Insufficient Verification of Data Authenticity", atlasBackdoor, atlasBackdoorName},
 	"TESS-DRIFT-002": {cweUnverifiedOrigin, "Insufficient Verification of Data Authenticity", "", ""},
+	"TESS-DRIFT-008": {cweUnverifiedOrigin, "Insufficient Verification of Data Authenticity", "", ""},
 	"TESS-DRIFT-003": {cweUnverifiedOrigin, "Insufficient Verification of Data Authenticity", "", ""},
 	"TESS-DRIFT-004": {cweMissingIntegrity, "Missing Support for Integrity Check", atlasSupplyChainModel, atlasSupplyChainName},
 	"TESS-DRIFT-007": {cweUnverifiedOrigin, "Insufficient Verification of Data Authenticity", atlasBackdoor, atlasBackdoorName},

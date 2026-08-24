@@ -1,7 +1,7 @@
 {
-  "runAt": "2026-08-23T01:21:03Z",
-  "cases": 10,
-  "labels": 27,
+  "runAt": "2026-08-24T15:11:09Z",
+  "cases": 11,
+  "labels": 31,
   "results": [
     {
       "case": "clean-gguf",
@@ -10,9 +10,9 @@
     },
     {
       "case": "precision-drift",
-      "why": "Declares F16 while every tensor is Q4_K. Precision drives memory, throughput and accuracy, so a quantized model presented as full precision misrepresents all three. This is the axis no scanner that only reads headers can see.",
+      "why": "Declares F16 in its own header while every tensor is Q4_K, with no config.json beside it. The file contradicts itself, which no sidecar can reconcile — a distinct finding from a config that disagrees with the tensors.",
       "found": [
-        "TESS-DRIFT-002",
+        "TESS-DRIFT-008",
         "TESS-LIC-001"
       ]
     },
@@ -77,12 +77,22 @@
       "why": "config.json says float16 while the tensors are Q4_K. The declaration lives beside the model rather than inside it, so this needs both files read and reconciled.",
       "found": [
         "TESS-DRIFT-002",
+        "TESS-DRIFT-008",
+        "TESS-LIC-001"
+      ]
+    },
+    {
+      "case": "header-and-config-both-drift",
+      "why": "Both the GGUF's own header AND config.json disagree with the tensors. Two distinct false claims, so two distinct findings — reporting one problem twice would inflate the count and double-count it in the risk score.",
+      "found": [
+        "TESS-DRIFT-002",
+        "TESS-DRIFT-008",
         "TESS-LIC-001"
       ]
     }
   ],
-  "truePositives": 6,
+  "truePositives": 8,
   "falseNegatives": 0,
   "falsePositives": 0,
-  "trueNegatives": 21
+  "trueNegatives": 23
 }

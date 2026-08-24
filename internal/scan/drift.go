@@ -40,6 +40,11 @@ const (
 	DriftUncheckable    = "TESS-DRIFT-005"
 	DriftMixedFormats   = "TESS-DRIFT-006"
 	DriftParameterCount = "TESS-DRIFT-007"
+	// DriftSelfDeclared is the file contradicting its own header, which is a
+	// distinct and stronger claim than disagreeing with a sidecar — and needs
+	// its own identifier so the two are counted, suppressed and mapped
+	// separately rather than arriving as the same finding twice.
+	DriftSelfDeclared = "TESS-DRIFT-008"
 )
 
 // analyzeDrift produces the declared-versus-measured findings.
@@ -341,7 +346,7 @@ func driftSelfDeclaredPrecision(a *model.Artifact) []model.Finding {
 		return nil
 	}
 	return []model.Finding{{
-		ID: DriftDType, Title: "Declared precision does not match the tensors",
+		ID: DriftSelfDeclared, Title: "The file's own header contradicts its tensors",
 		Severity: "High", Category: "drift", Location: a.PrimaryFile().Path,
 		Description: fmt.Sprintf("the file's own general.file_type declares %q while its tensor "+
 			"headers report %q holds the most parameters. Precision drives memory, throughput and "+
