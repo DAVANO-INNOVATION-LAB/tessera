@@ -34,6 +34,9 @@ type Artifact struct {
 	// Derivation is set when this artifact was produced from another by a
 	// transformation this tool performed, rather than parsed from the file.
 	Derivation *Derivation `json:"derivation,omitempty"`
+
+	// Considerations carries the governance prose from a model card.
+	Considerations Considerations `json:"considerations,omitempty"`
 	// Params describes the model's shape and training, as measured from the
 	// binary itself.
 	Params Parameters `json:"params"`
@@ -356,4 +359,44 @@ type DerivationIssue struct {
 	Name        string   `json:"name,omitempty"`
 	Description string   `json:"description,omitempty"`
 	References  []string `json:"references,omitempty"`
+}
+
+// Considerations is the governance half of a model card: who it is for, what it
+// must not be used for, and what it gets wrong.
+//
+// CycloneDX has a modelCard.considerations block for exactly this, and it is the
+// part regulators read. The EU AI Act asks about intended purpose and known
+// limitations; NIST AI RMF asks who is affected. A document that carries
+// architecture and precision but leaves this empty answers the engineer's
+// questions and none of the reviewer's.
+//
+// Every field here is *declared*. Nothing in a weights file states an intended
+// use, and this package is careful elsewhere to separate what was measured from
+// what was claimed — so these travel as prose read from a model card, attributed
+// to it, and never presented as verified.
+type Considerations struct {
+	// Users are the intended audiences.
+	Users []string `json:"users,omitempty"`
+	// UseCases are the intended applications.
+	UseCases []string `json:"useCases,omitempty"`
+	// TechnicalLimitations is what the model is known to do badly.
+	TechnicalLimitations []string `json:"technicalLimitations,omitempty"`
+	// PerformanceTradeoffs records where accuracy was traded for something else.
+	PerformanceTradeoffs []string `json:"performanceTradeoffs,omitempty"`
+	// EthicalConsiderations are named risks, each optionally with a mitigation.
+	EthicalConsiderations []Risk `json:"ethicalConsiderations,omitempty"`
+	// Source names the file these were read from, so a reader can go and check.
+	Source string `json:"source,omitempty"`
+}
+
+// Risk is a named concern and what, if anything, is done about it.
+type Risk struct {
+	Name               string `json:"name"`
+	MitigationStrategy string `json:"mitigationStrategy,omitempty"`
+}
+
+// Empty reports whether anything was found.
+func (c Considerations) Empty() bool {
+	return len(c.Users) == 0 && len(c.UseCases) == 0 && len(c.TechnicalLimitations) == 0 &&
+		len(c.PerformanceTradeoffs) == 0 && len(c.EthicalConsiderations) == 0
 }

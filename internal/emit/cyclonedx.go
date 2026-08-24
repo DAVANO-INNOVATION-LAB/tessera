@@ -190,6 +190,23 @@ func modelCard(a *model.Artifact) *cdxModelCard {
 	for _, io := range a.Params.Outputs {
 		mp.Outputs = append(mp.Outputs, cdxIO{Format: ioFormat(io)})
 	}
+	// Considerations are the publisher's prose, carried so a reviewer can read
+	// what the card claims about intended use and known limits. Declared, never
+	// measured — nothing in a weights file states an intended use — so the
+	// source is recorded as a property beside it.
+	var cons *cdxConsiderations
+	if c := a.Considerations; !c.Empty() {
+		cons = &cdxConsiderations{
+			Users: c.Users, UseCases: c.UseCases,
+			TechnicalLimitations: c.TechnicalLimitations,
+			PerformanceTradeoffs: c.PerformanceTradeoffs,
+		}
+		for _, r := range c.EthicalConsiderations {
+			cons.EthicalConsiderations = append(cons.EthicalConsiderations,
+				cdxRisk{Name: r.Name, MitigationStrategy: r.MitigationStrategy})
+		}
+	}
+
 	// Omit an all-empty modelParameters rather than emit a hollow object.
 	var mpp *cdxModelParams
 	if mp.ArchitectureFamily != "" || mp.ModelArchitecture != "" || len(mp.Datasets) > 0 ||
@@ -208,10 +225,15 @@ func modelCard(a *model.Artifact) *cdxModelCard {
 		props = append(props, cdxProp{Name: "hyperparameter:" + k, Value: a.Params.Hyperparameters[k]})
 	}
 
-	if mpp == nil && len(props) == 0 {
+	if cons != nil && a.Considerations.Source != "" {
+		props = append(props, cdxProp{
+			Name: "tessera:considerationsSource", Value: a.Considerations.Source})
+	}
+
+	if mpp == nil && cons == nil && len(props) == 0 {
 		return nil
 	}
-	return &cdxModelCard{ModelParameters: mpp, Properties: props}
+	return &cdxModelCard{ModelParameters: mpp, Considerations: cons, Properties: props}
 }
 
 // bsiProperties emits the three component properties BSI TR-03183-2 §5.2.2
@@ -502,8 +524,26 @@ type cdxExtRef struct {
 }
 
 type cdxModelCard struct {
-	ModelParameters *cdxModelParams `json:"modelParameters,omitempty"`
-	Properties      []cdxProp       `json:"properties,omitempty"`
+	ModelParameters *cdxModelParams    `json:"modelParameters,omitempty"`
+	Considerations  *cdxConsiderations `json:"considerations,omitempty"`
+	Properties      []cdxProp          `json:"properties,omitempty"`
+}
+
+// cdxConsiderations is the governance half of the model card — the part a
+// reviewer reads and, until now, the part this tool left empty while reporting
+// coverage against standards that ask for it.
+type cdxConsiderations struct {
+	Users                 []string  `json:"users,omitempty"`
+	UseCases              []string  `json:"useCases,omitempty"`
+	TechnicalLimitations  []string  `json:"technicalLimitations,omitempty"`
+	PerformanceTradeoffs  []string  `json:"performanceTradeoffs,omitempty"`
+	EthicalConsiderations []cdxRisk `json:"ethicalConsiderations,omitempty"`
+}
+
+// cdxRisk is a named concern and its mitigation, per the spec's risk object.
+type cdxRisk struct {
+	Name               string `json:"name"`
+	MitigationStrategy string `json:"mitigationStrategy,omitempty"`
 }
 
 type cdxModelParams struct {

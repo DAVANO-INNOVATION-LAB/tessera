@@ -55,15 +55,36 @@ func readCycloneDX(raw []byte) (*Document, error) {
 		return nil, fmt.Errorf("unreadable CycloneDX document: %w", err)
 	}
 
+	// Which component is the model.
+	//
+	// Documents that describe a single artifact put it at metadata.component,
+	// which is what this assumed. System-level generators do not: a bill of
+	// materials for a running inference service puts the *workload* there —
+	// "vllm-llama3", type application — and lists the models beneath it in
+	// components[]. Comparing an artifact against that top-level entry compares
+	// it against a Deployment name and reports a mismatch that means nothing.
+	//
+	// So the subject is the top-level component when it is a model, and
+	// otherwise the first machine-learning-model in the document. This is what
+	// lets one verifier check documents produced by tools that describe systems
+	// as well as tools that describe files.
+	primary := doc.Metadata.Component
+	if primary.Type != "machine-learning-model" {
+		for _, c := range doc.Components {
+			if c.Type == "machine-learning-model" {
+				primary = c
+				break
+			}
+		}
+	}
+
 	out := &Document{
 		Format:     "CycloneDX " + doc.SpecVersion,
-		ModelName:  doc.Metadata.Component.Name,
-		Version:    doc.Metadata.Component.Version,
+		ModelName:  primary.Name,
+		Version:    primary.Version,
 		Properties: map[string]string{},
 	}
 
-	// The model component's own hashes describe the primary file.
-	primary := doc.Metadata.Component
 	if f := fileFromCDX(primary, primaryPathFrom(primary)); f.Path != "" {
 		out.Files = append(out.Files, f)
 	}

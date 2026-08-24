@@ -50,6 +50,11 @@ func readModelCard(a *model.Artifact, dir string) {
 	if err != nil {
 		return
 	}
+	// The body is read whether or not there is frontmatter. A card with no
+	// YAML block still has the prose a reviewer needs, and returning early on
+	// missing frontmatter would discard it.
+	parseConsiderations(a, frontmatterBody(string(raw)), "README.md")
+
 	fields := parseFrontmatter(string(raw))
 	if len(fields) == 0 {
 		return
@@ -363,4 +368,22 @@ func hubDatasetURL(name string) string {
 		return ""
 	}
 	return "https://huggingface.co/datasets/" + name
+}
+
+// frontmatterBody returns the markdown after a leading YAML frontmatter block,
+// or the whole document when there is none.
+func frontmatterBody(raw string) string {
+	t := strings.TrimLeft(raw, "\ufeff \t\r\n")
+	if !strings.HasPrefix(t, "---") {
+		return raw
+	}
+	rest := t[3:]
+	if i := strings.Index(rest, "\n---"); i >= 0 {
+		after := rest[i+4:]
+		if j := strings.Index(after, "\n"); j >= 0 {
+			return after[j+1:]
+		}
+		return ""
+	}
+	return raw
 }

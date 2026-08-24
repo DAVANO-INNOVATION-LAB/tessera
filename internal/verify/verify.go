@@ -150,7 +150,7 @@ func checkIdentity(doc *Document, a *model.Artifact) []Check {
 	var out []Check
 	if doc.ModelName != "" {
 		out = append(out, compare("model name", doc.ModelName, a.Identity.Name,
-			strings.EqualFold(doc.ModelName, a.Identity.Name)))
+			modelNamesAgree(doc.ModelName, a.Identity.Name)))
 	}
 	if doc.Version != "" && a.Identity.Version != "" {
 		out = append(out, compare("model version", doc.Version, a.Identity.Version,
@@ -283,4 +283,32 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// modelNamesAgree compares two names for the same model, tolerating the
+// publisher prefix.
+//
+// Hub-derived documents name a model "meta-llama/Llama-3.2-1B-Instruct"; the
+// file's own general.name is usually the bare "Llama-3.2-1B-Instruct". Treating
+// those as different reports drift on every model published to a hub — a false
+// failure on the most ordinary case there is, in the one check a reader is most
+// likely to look at first.
+//
+// Only the prefix is forgiven. Two different models are still two different
+// models, and a mismatched suffix still fails.
+func modelNamesAgree(declared, measured string) bool {
+	if strings.EqualFold(declared, measured) {
+		return true
+	}
+	return strings.EqualFold(bareModelName(declared), bareModelName(measured))
+}
+
+// bareModelName drops a single leading "org/" segment. Only one: a name with
+// several slashes is a path, and collapsing it would let unrelated models match
+// on their last segment alone.
+func bareModelName(s string) string {
+	if strings.Count(s, "/") != 1 {
+		return s
+	}
+	return s[strings.Index(s, "/")+1:]
 }
