@@ -115,11 +115,23 @@
                 "type": "vcs",
                 "url": "https://huggingface.co/example-org/base-one"
               }
+            ],
+            "properties": [
+              {
+                "name": "tessera:lineageEvidence",
+                "value": "declared"
+              }
             ]
           },
           {
             "type": "machine-learning-model",
-            "name": "Base Two"
+            "name": "Base Two",
+            "properties": [
+              {
+                "name": "tessera:lineageEvidence",
+                "value": "declared"
+              }
+            ]
           }
         ]
       },
