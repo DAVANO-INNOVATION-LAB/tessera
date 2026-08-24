@@ -4,7 +4,7 @@ import "github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
 
 // The scanner vocabulary this package needs, kept here rather than imported.
 //
-// Assay owns a catalogue of scanner container images — which image runs, what
+// Cupel owns a catalogue of scanner container images — which image runs, what
 // arguments it takes, whether it is enabled by default. None of that means
 // anything inside a single static binary with no cluster to schedule pods on.
 // What does travel is the naming: the categories a finding falls into and the

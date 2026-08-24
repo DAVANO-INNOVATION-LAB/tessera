@@ -93,14 +93,14 @@ performed quietly.
 Tessera is a library, a command and a local interface. It has no opinion about
 Kubernetes.
 
-[**Assay**](https://github.com/DAVANO-INNOVATION-LAB/assay) is the operator that
+[**Cupel**](https://github.com/DAVANO-INNOVATION-LAB/cupel) is the operator that
 runs it at fleet scale and enforces the answer: scheduled rescanning, promotion
 between environments, a tamper-evident decision log, and an admission webhook
 that refuses to let an unapproved model reach a running workload — the one thing
 a command-line tool cannot do.
 
-Assay imports Tessera. Tessera does not know Assay exists. Use Tessera to
-inspect or document a model; add Assay when the answer has to be enforced.
+Cupel imports Tessera. Tessera does not know Cupel exists. Use Tessera to
+inspect or document a model; add Cupel when the answer has to be enforced.
 
 ### The interface
 

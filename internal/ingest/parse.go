@@ -1,4 +1,4 @@
-// Package results parses scanner output into Assay findings. Each scanner has
+// Package results parses scanner output into Tessera findings. Each scanner has
 // its own format; normalizing here keeps the policy engine format-agnostic.
 package ingest
 

@@ -15,7 +15,7 @@ import (
 // admitted to a cluster also runs in a CI job, on a laptop, or inside an
 // air-gapped enclave with no API server to ask.
 //
-// Assay maps its custom resources onto these at the boundary, so there is one
+// Cupel maps its custom resources onto these at the boundary, so there is one
 // implementation of the decision rather than two that drift.
 
 // Verdicts a gate can reach.

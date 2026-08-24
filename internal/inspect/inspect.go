@@ -1,4 +1,4 @@
-// Package inspector implements Assay's own model-format scanner. Generic
+// Package inspector implements Tessera's own model-format scanner. Generic
 // container scanners see a model as an opaque blob; this one understands the
 // serialization formats and flags the ways a model file can execute code.
 package inspect
