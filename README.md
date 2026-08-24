@@ -47,6 +47,7 @@ tessera scan ./model-dir --out ./boms
 tessera bom ./model-dir --format cyclonedx,spdx,sarif
 
 # Does this document still describe these bytes?
+# Works on any CycloneDX ML-BOM, including ones other tools produced.
 tessera verify model.cdx.json ./model-dir
 
 # Coverage against a published minimum-elements list
@@ -78,6 +79,20 @@ it was cut from, pinned by digest, rather than appearing to come from nowhere.
 
 Changes a tool should not make silently are refused with the reason, not
 performed quietly.
+
+### Running it across a cluster
+
+Tessera is a library, a command and a local interface. It has no opinion about
+Kubernetes.
+
+[**Assay**](https://github.com/DAVANO-INNOVATION-LAB/assay) is the operator that
+runs it at fleet scale and enforces the answer: scheduled rescanning, promotion
+between environments, a tamper-evident decision log, and an admission webhook
+that refuses to let an unapproved model reach a running workload — the one thing
+a command-line tool cannot do.
+
+Assay imports Tessera. Tessera does not know Assay exists. Use Tessera to
+inspect or document a model; add Assay when the answer has to be enforced.
 
 ### The interface
 

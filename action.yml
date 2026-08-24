@@ -1,7 +1,8 @@
 name: "Tessera AI bill of materials"
 description: >-
-  Generate a CycloneDX / SPDX bill of materials and a SARIF report from a model
-  artifact, offline, and raise the findings as code-scanning alerts.
+  Scan a model file for what executes on load, and generate a CycloneDX, SPDX
+  and SARIF bill of materials from its bytes — offline, with no framework and no
+  network. Findings raise as code-scanning alerts.
 author: "Davano Innovation Lab"
 
 branding:
