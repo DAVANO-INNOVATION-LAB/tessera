@@ -1,7 +1,11 @@
 package resolver
 
 import (
+	"bytes"
+	"context"
 	"encoding/binary"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -104,5 +108,66 @@ func TestSampleHeaderGuardsAnAbsurdDeclaredLength(t *testing.T) {
 	if largest > fallback {
 		t.Errorf("requested %d bytes on a file claiming 18 exabytes; the cap is %d",
 			largest, fallback)
+	}
+}
+
+// A staged artifact must say when it was only sampled — and must not say so
+// when it wasn't.
+//
+// Nil coverage is the documented contract for a complete fetch, so both
+// directions matter: a partial read reported as complete hides an unread file,
+// and a complete read reported as partial puts a false asterisk on every small
+// config in a tree.
+func TestPVCCoverageReportsPartialReadsAndOnlyThose(t *testing.T) {
+	mount := t.TempDir()
+	src := filepath.Join(mount, "claim", "model")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// A safetensors far larger than the header sample: genuinely partial.
+	header := []byte(`{"__metadata__":{"format":"pt"}}`)
+	var big bytes.Buffer
+	binary.Write(&big, binary.LittleEndian, uint64(len(header)))
+	big.Write(header)
+	big.Write(make([]byte, 4<<20))
+	if err := os.WriteFile(filepath.Join(src, "model.safetensors"), big.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "config.json"), []byte(`{"a":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Registry{}
+	r.Register(&PVCResolver{MountRoot: mount})
+	art, err := r.Resolve(context.Background(), "pvc://claim/model", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art.Coverage == nil {
+		t.Fatal("a header-sampled artifact reported complete coverage")
+	}
+	if len(art.Coverage.HeaderOnly) != 1 || art.Coverage.HeaderOnly[0] != "model.safetensors" {
+		t.Errorf("headerOnly = %v, want just the safetensors", art.Coverage.HeaderOnly)
+	}
+	if len(art.Coverage.FetchedWhole) != 1 {
+		t.Errorf("fetchedWhole = %v, want the config", art.Coverage.FetchedWhole)
+	}
+
+	// Now a tree whose every file fits inside the sample. Nothing was missed,
+	// so nothing should be flagged.
+	small := filepath.Join(mount, "claim", "small")
+	if err := os.MkdirAll(small, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(small, "model.safetensors"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	art2, err := r.Resolve(context.Background(), "pvc://claim/small", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art2.Coverage != nil {
+		t.Errorf("a fully-read artifact reported partial coverage: %+v", art2.Coverage)
 	}
 }

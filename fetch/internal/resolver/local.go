@@ -69,8 +69,19 @@ func (p *PVCResolver) Resolve(_ context.Context, uri, destDir string) (*Artifact
 	//
 	// It also preserves the isolation model: the scanner reads a copy in an
 	// emptyDir, never the source claim.
-	if err := copyTree(local, destDir, info); err != nil {
+	cov := &Coverage{Skipped: map[string]string{}}
+	if err := copyTree(local, destDir, info, cov); err != nil {
 		return nil, err
+	}
+
+	// Nil means the whole artifact was read, which is the documented contract
+	// and the thing a caller checks. Attaching a Coverage that reports nothing
+	// partial would make every complete fetch look like a sampled one.
+	sort.Strings(cov.HeaderOnly)
+	sort.Strings(cov.FetchedWhole)
+	reported := cov
+	if cov.Complete() {
+		reported = nil
 	}
 
 	return &Artifact{
@@ -79,6 +90,7 @@ func (p *PVCResolver) Resolve(_ context.Context, uri, destDir string) (*Artifact
 		MediaType: "application/vnd.assay.model-directory",
 		LocalPath: destDir,
 		SizeBytes: size,
+		Coverage:  reported,
 	}, nil
 }
 
@@ -87,13 +99,23 @@ func (p *PVCResolver) Resolve(_ context.Context, uri, destDir string) (*Artifact
 // Symlinks are skipped rather than followed. A model artifact is untrusted
 // input, and a link pointing outside the claim would otherwise pull host or
 // cluster files into the workspace and into the scan report.
-func copyTree(src, destDir string, info os.FileInfo) error {
+func copyTree(src, destDir string, info os.FileInfo, cov *Coverage) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("create staging dir: %w", err)
 	}
 
 	if !info.IsDir() {
-		return copyFile(src, filepath.Join(destDir, filepath.Base(src)))
+		base := filepath.Base(src)
+		if HeaderInspectable(base) {
+			whole, err := copyHeader(src, filepath.Join(destDir, base), DefaultSamplingLimits().HeaderBytes)
+			if err != nil {
+				return err
+			}
+			record(cov, base, whole)
+			return nil
+		}
+		cov.FetchedWhole = append(cov.FetchedWhole, base)
+		return copyFile(src, filepath.Join(destDir, base))
 	}
 
 	return filepath.Walk(src, func(path string, fi os.FileInfo, err error) error {
@@ -123,8 +145,14 @@ func copyTree(src, destDir string, info os.FileInfo) error {
 			// emptyDir, once per scanner, to read a header measured in kilobytes is
 			// the same waste as downloading it — it just happens on local disk.
 			if HeaderInspectable(rel) {
-				return copyHeader(path, target, DefaultSamplingLimits().HeaderBytes)
+				whole, err := copyHeader(path, target, DefaultSamplingLimits().HeaderBytes)
+				if err != nil {
+					return err
+				}
+				record(cov, rel, whole)
+				return nil
 			}
+			cov.FetchedWhole = append(cov.FetchedWhole, rel)
 			return copyFile(path, target)
 		default:
 			// Devices, sockets, and pipes are not model data.
@@ -296,12 +324,19 @@ func treeDigest(root string) (string, int64, error) {
 // Uses the same two-step as the network resolvers: safetensors declares its own
 // header length, so exactly that much is read; anything else falls back to a
 // bounded prefix.
-func copyHeader(src, target string, fallback int64) error {
+func copyHeader(src, target string, fallback int64) (whole bool, err error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("open %s: %w", src, err)
+		return false, fmt.Errorf("open %s: %w", src, err)
 	}
 	defer in.Close()
+
+	// A file smaller than the sample is not a partial read, and reporting it as
+	// one would put a false "header-only" on every small config in the tree.
+	fi, err := in.Stat()
+	if err != nil {
+		return false, err
+	}
 
 	body, err := sampleHeader(src, func(_ string, off, length int64) ([]byte, error) {
 		if _, err := in.Seek(off, io.SeekStart); err != nil {
@@ -315,7 +350,23 @@ func copyHeader(src, target string, fallback int64) error {
 		return buf[:n], nil
 	}, fallback)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return os.WriteFile(target, body, 0o644)
+	if err := os.WriteFile(target, body, 0o644); err != nil {
+		return false, err
+	}
+	return int64(len(body)) >= fi.Size(), nil
+}
+
+// record files a sampled read as whole or partial.
+//
+// A header sample that happened to cover the entire file did read the entire
+// file, and saying otherwise would mark every small config in a tree as
+// partially read — which devalues the signal exactly where it matters.
+func record(cov *Coverage, name string, whole bool) {
+	if whole {
+		cov.FetchedWhole = append(cov.FetchedWhole, name)
+		return
+	}
+	cov.HeaderOnly = append(cov.HeaderOnly, name)
 }
