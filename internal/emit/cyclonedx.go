@@ -297,16 +297,10 @@ func modelProperties(a *model.Artifact) []cdxProp {
 func pedigree(a *model.Artifact) *cdxPedigree {
 	var ancestors []cdxComponent
 	for _, ref := range a.Lineage.BaseModels {
-		ancestors = append(ancestors, cdxComponent{
-			Type: "machine-learning-model", Name: ref.Name,
-			ExternalReferences: refToExt(ref),
-		})
+		ancestors = append(ancestors, declaredAncestor(ref, a.Declared.Source))
 	}
 	for _, ref := range a.Lineage.Sources {
-		ancestors = append(ancestors, cdxComponent{
-			Type: "machine-learning-model", Name: ref.Name,
-			ExternalReferences: refToExt(ref),
-		})
+		ancestors = append(ancestors, declaredAncestor(ref, a.Declared.Source))
 	}
 	// A derivation this tool performed is pedigree in the exact sense the spec
 	// means: the component was created by modifying another one. It joins the
@@ -332,8 +326,15 @@ func pedigree(a *model.Artifact) *cdxPedigree {
 			// The digest is the load-bearing part. It turns "descended from X"
 			// from an assertion into something a reader holding the original can
 			// check, which is the difference between provenance and a rumour.
+			//
+			// Marked measured to sit beside the declared ancestors above: in one
+			// list, one entry is a sentence from a README and another is an
+			// artifact this tool transformed, and the document should say which
+			// is which rather than leave it to be inferred from a missing field.
 			if src.SHA256 != "" {
 				anc.Hashes = []cdxHash{{Alg: "SHA-256", Content: src.SHA256}}
+				anc.Properties = append(anc.Properties,
+					cdxProp{Name: "tessera:lineageEvidence", Value: lineageMeasured})
 			}
 			ancestors = append(ancestors, anc)
 		}
@@ -679,4 +680,50 @@ func derivationNotes(d *model.Derivation) string {
 		parts = append(parts, "Produced at "+d.ProducedAt+".")
 	}
 	return strings.Join(parts, " ")
+}
+
+// Evidence values for tessera:lineageEvidence, which says how an ancestry claim
+// came to be in this document.
+const (
+	// lineageDeclared means a model card or config asserted it. Nothing checked
+	// the weights.
+	lineageDeclared = "declared"
+	// lineageMeasured means this tool produced the derivative and pinned the
+	// source by digest.
+	lineageMeasured = "measured"
+)
+
+// declaredAncestor renders a base model the artifact *claims* to descend from,
+// and says out loud that nothing verified it.
+//
+// This exists because the absence of a hash was the only thing separating an
+// asserted ancestor from a checked one, and absence is not a statement — a
+// reader could as easily conclude the digest was omitted. An unmarked ancestry
+// claim in a bill of materials reads as a fact about the model when it is a
+// sentence copied out of a README.
+//
+// Confirming it is a different kind of work than this tool does. Deciding
+// whether weights really descend from a given base means loading the weight
+// matrices of both models and comparing invariants across them — gigabytes of
+// tensor values and a reference model to compare against, where everything here
+// is bounded, offline and reads tensor *metadata* rather than tensor values.
+// Published methods exist for it (HuRef and MoTHer among them). None of them is
+// cheap, and pretending otherwise in this field would be the exact failure the
+// rest of this package refuses.
+//
+// So the claim is carried, attributed, and labelled as a claim. If a verdict
+// from a weight-level verifier ever arrives, it belongs on this property.
+func declaredAncestor(ref model.Reference, source string) cdxComponent {
+	c := cdxComponent{
+		Type: "machine-learning-model", Name: ref.Name,
+		ExternalReferences: refToExt(ref),
+		Properties: []cdxProp{
+			{Name: "tessera:lineageEvidence", Value: lineageDeclared},
+		},
+	}
+	if source != "" {
+		c.Properties = append(c.Properties,
+			cdxProp{Name: "tessera:lineageSource", Value: source})
+	}
+	return c
 }

@@ -1,8 +1,8 @@
 name: "Tessera AI bill of materials"
 description: >-
-  Scan a model file for what executes on load, and generate a CycloneDX, SPDX
-  and SARIF bill of materials from its bytes — offline, with no framework and no
-  network. Findings raise as code-scanning alerts.
+  Reads the bytes, refuses the bad ones, needs no network. Walks the tensor block
+  and everything beside it, emits CycloneDX, SPDX and SARIF, and fails the build
+  on a severity you choose. No framework, no hub, no telemetry.
 author: "Davano Innovation Lab"
 
 branding:

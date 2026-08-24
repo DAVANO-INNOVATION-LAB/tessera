@@ -1,18 +1,26 @@
 # Tessera
 
-**Scan model files for what will hurt you, and produce an AI bill of materials
-you can prove.**
+**Reads the bytes. Refuses the bad ones. Needs no network.**
 
-Tessera opens GGUF, safetensors and ONNX directly, then walks everything beside
-them — pickle, PyTorch, Keras, SavedModel, NumPy, archives — because the formats
-it parses natively are the ones that *cannot* carry code. The attack is in the
-tokenizer pickle next door.
+Plenty of tools will write you an AI bill of materials. They read a model card,
+a container label, a pod annotation — what the artifact *says about itself* —
+and hand you a document. Tessera opens the file.
+
+- **Depth.** GGUF, safetensors and ONNX are parsed directly and the tensor block
+  is walked, so a file claiming `float16` over `Q4_K` weights is caught by
+  arithmetic rather than trust. Everything beside them is walked too — pickle,
+  PyTorch, Keras, SavedModel, NumPy, archives — because the formats parsed
+  natively are the ones that *cannot* carry code. The attack is in the tokenizer
+  pickle next door.
+- **Refusal.** A verdict, an exit code, and a severity threshold, so a pipeline
+  stops rather than files a report nobody reads.
+- **No network.** No framework, no hub, no cluster, no telemetry, and zero
+  third-party dependencies in the core. It runs in an enclave.
 
 The same parse emits **CycloneDX 1.6/1.7**, **SPDX 3.0.1** and **SARIF 2.1.0**,
-signs the result, and can re-derive every claim from the bytes months later to
-show the document is still true.
-
-No framework, no network, no cluster. Zero third-party dependencies.
+signs the result with a hybrid post-quantum signature, and can re-derive every
+claim from the bytes months later to show the document is still true — including
+documents other tools produced.
 
 ## Install
 

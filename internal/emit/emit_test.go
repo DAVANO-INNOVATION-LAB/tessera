@@ -316,3 +316,76 @@ func TestUnverifiedDerivationAssertsNothingStructural(t *testing.T) {
 		t.Error("SPDX emitted a descendantOf edge for an unverified derivation")
 	}
 }
+
+// An ancestry claim must say it is a claim.
+//
+// A model card's base_model line is a sentence someone typed; a hardening
+// source is an artifact this tool transformed and pinned. Both land in
+// pedigree.ancestors, and before this the only thing separating them was that
+// one carried a hash — which is not a statement. A reader could as easily
+// conclude the digest had been omitted, and read an unchecked assertion as a
+// verified fact about the model's origin.
+func TestDeclaredAncestryIsMarkedAsUnverified(t *testing.T) {
+	a := derivedArtifact()
+	a.Declared.Source = "README.md"
+	a.Lineage.BaseModels = []model.Reference{{Name: "llama-base"}}
+
+	data, err := CycloneDX(a, time.Unix(0, 0).UTC(), Tool{Name: "tessera"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Metadata struct {
+			Component struct {
+				Pedigree struct {
+					Ancestors []struct {
+						Name       string `json:"name"`
+						Hashes     []any  `json:"hashes"`
+						Properties []struct {
+							Name  string `json:"name"`
+							Value string `json:"value"`
+						} `json:"properties"`
+					} `json:"ancestors"`
+				} `json:"pedigree"`
+			} `json:"component"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	evidence := func(props []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	}) string {
+		for _, p := range props {
+			if p.Name == "tessera:lineageEvidence" {
+				return p.Value
+			}
+		}
+		return ""
+	}
+
+	var declared, measured int
+	for _, anc := range doc.Metadata.Component.Pedigree.Ancestors {
+		switch ev := evidence(anc.Properties); ev {
+		case "declared":
+			declared++
+			if len(anc.Hashes) > 0 {
+				t.Errorf("%s is marked declared but carries a digest", anc.Name)
+			}
+		case "measured":
+			measured++
+			if len(anc.Hashes) == 0 {
+				t.Errorf("%s is marked measured but carries no digest to check", anc.Name)
+			}
+		default:
+			t.Errorf("%s carries no lineage evidence marker; a reader cannot tell "+
+				"an asserted ancestor from a verified one", anc.Name)
+		}
+	}
+	if declared != 1 || measured != 1 {
+		t.Errorf("got %d declared and %d measured ancestors, want one of each",
+			declared, measured)
+	}
+}
