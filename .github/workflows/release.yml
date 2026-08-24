@@ -7,7 +7,10 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    # Full versions only. The floating major tag (v1) moves with every release
+    # and matches "v*", so a broader filter fired this workflow a second time
+    # and began publishing a release named "1".
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
     inputs:
       dry_run:
