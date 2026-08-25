@@ -27,7 +27,7 @@ documents other tools produced.
 In a workflow:
 
 ```yaml
-- uses: DAVANO-INNOVATION-LAB/tessera@v1.0.2
+- uses: DAVANO-INNOVATION-LAB/tessera@v1.1.0
   with:
     path: ./model-dir
     fail-on: critical
