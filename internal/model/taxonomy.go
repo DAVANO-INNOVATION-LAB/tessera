@@ -189,6 +189,7 @@ var taxonomy = map[string]Classification{
 	//   TESS-FILE-001/002 a file could not be read, or the cap was hit
 	//   TESS-IO-001/002   the same, one layer down
 	//   TESS-KERAS-004    a container that could not be examined
+	//   TESS-GGUF-009     the same, for a GGUF header
 	//   TESS-ONNX-005/006 the parse stopped early
 	//   TESS-LIC-001      no licence disclosed — a documentation gap
 	//

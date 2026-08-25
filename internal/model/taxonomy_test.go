@@ -30,6 +30,7 @@ func TestUnmappedFindingsAreTheExpectedOnes(t *testing.T) {
 		"TESS-FILE-001": true, "TESS-FILE-002": true,
 		"TESS-IO-001": true, "TESS-IO-002": true,
 		"TESS-KERAS-004": true, "TESS-ONNX-005": true,
+		"TESS-GGUF-009": true,
 		"TESS-ONNX-006": true, "TESS-LIC-001": true,
 	}
 	for id := range emittedIDs(t) {

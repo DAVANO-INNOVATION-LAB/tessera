@@ -163,6 +163,8 @@ func inspectFile(path, rel string, limits Limits) ([]model.Finding, error) {
 		return inspectJSONConfig(path, rel)
 	case ".safetensors":
 		return inspectSafetensors(path, rel)
+	case ".gguf", ".ggml":
+		return inspectGGUF(path, rel)
 	case ".keras":
 		return inspectKerasArchive(path, rel, limits)
 	case ".h5", ".hdf5":

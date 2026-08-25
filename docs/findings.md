@@ -75,6 +75,7 @@ is not reported as a clean artifact.
 | `TESS-LINK-001` | High | A symlink escaping the model directory. |
 | `TESS-COVERAGE-001` | High | The walk was truncated, so part of the artifact was never examined. A clean result over a partial walk is not a clean artifact. |
 | `TESS-KERAS-004` | Medium | A Keras container that could not be examined. |
+| `TESS-GGUF-009` | Medium | A GGUF file that could not be examined. Nothing inside it was checked, which is not the same as nothing being wrong with it. |
 | `TESS-PICKLE-002` | Medium | A Torch zip container. |
 | `TESS-PICKLE-004` | Medium | An unsafe serialization format where a safe one exists. |
 | `TESS-EXEC-001` | Medium | A file carrying the executable bit. |
