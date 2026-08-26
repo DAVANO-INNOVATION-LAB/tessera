@@ -152,33 +152,4 @@ func hasResolvedLicense(a *model.Artifact) bool {
 // template escaping the sandbox to reach Python: attribute traversal through
 // dunders, the known SSTI gadget objects, or pulling in another template. A
 // formatting template needs none of those.
-func looksLikeActiveJinja(s string) bool {
-	// Dunder traversal is the universal signature: __globals__, __class__,
-	// __subclasses__, __init__ are how every published escape gets from a
-	// template object to the interpreter.
-	if strings.Contains(s, "__") {
-		return true
-	}
-	// Gadget objects Jinja exposes that are only useful as a bridge to Python.
-	for _, gadget := range []string{"namespace(", "cycler", "lipsum", "joiner"} {
-		if strings.Contains(s, gadget) {
-			return true
-		}
-	}
-	// Loading another template moves the logic somewhere this file cannot show
-	// a reviewer, which defeats the point of reading the template at all.
-	for _, tag := range []string{"{% import", "{%import", "{% from", "{%from",
-		"{% extends", "{%extends", "{% include", "{%include"} {
-		if strings.Contains(s, tag) {
-			return true
-		}
-	}
-	// Direct reaches for process and evaluation primitives.
-	for _, call := range []string{"os.", "subprocess", "popen", "system(",
-		"eval(", "exec(", "importlib", "builtins"} {
-		if strings.Contains(s, call) {
-			return true
-		}
-	}
-	return false
-}
+func looksLikeActiveJinja(s string) bool { return model.ActiveJinja(s) }

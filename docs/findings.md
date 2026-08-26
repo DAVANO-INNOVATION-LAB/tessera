@@ -17,6 +17,7 @@ suppressions — so the list is complete rather than illustrative.
 | `TESS-FILE-003` | Critical | A referenced shard or sidecar resolving outside the model directory, including via a symlink. Never opened. |
 | `TESS-ONNX-010` | High | A non-standard operator domain, which resolves to an out-of-tree native kernel that runs when the model runs. |
 | `TESS-GGUF-010` | High | Jinja control logic in the GGUF `chat_template`. Loaders that render it unsandboxed execute it (the CVE-2024-34359 "Llama Drama" class) — attacker-controlled metadata as code execution. |
+| `TESS-HF-003` | High | The same in a `tokenizer_config.json` beside safetensors weights. The template is rendered before the first token whichever way the model is packaged. |
 | `TESS-GGUF-011` | Medium | An implausible `general.alignment`, a known integer-overflow and arbitrary-seek vector. |
 
 ### Malformed or hostile structure

@@ -166,6 +166,7 @@ var taxonomy = map[string]Classification{
 
 	// A template rendered unsandboxed is injection into whatever renders it.
 	"TESS-GGUF-010": {cweCodeInjection, "Code Injection", atlasUnsafeML, atlasUnsafeMLName},
+	"TESS-HF-003":   {cweCodeInjection, "Code Injection", atlasUnsafeML, atlasUnsafeMLName},
 
 	// ── Declared versus measured ──────────────────────────────────────────
 	// Drift is not a code-execution weakness, and pretending otherwise would

@@ -683,6 +683,21 @@ func inspectJSONConfig(path, rel string) ([]model.Finding, error) {
 			"TESS-HF-002", "Custom auto_map classes", "High", rel,
 			"auto_map points transformers at model-supplied Python classes, which run on load"))
 	}
+
+	// A chat template is executable content shipped with the weights: loaders
+	// render it through a template engine before the first token.
+	//
+	// The same template arrives by two routes — as GGUF metadata, and as a
+	// tokenizer_config.json beside safetensors weights — and only the first was
+	// being read. The second is how nearly every model on a public hub is
+	// distributed, so the check covered the minority packaging of the risk.
+	if tmpl, ok := cfg["chat_template"].(string); ok && model.ActiveJinja(tmpl) {
+		findings = append(findings, finding(
+			"TESS-HF-003", "Executable chat template", "High", rel,
+			"the chat template reaches for the interpreter rather than formatting a "+
+				"conversation; loaders render it before the first token, which is the "+
+				"path CVE-2024-34359 took to remote code execution"))
+	}
 	return findings, nil
 }
 
