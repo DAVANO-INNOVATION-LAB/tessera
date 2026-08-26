@@ -52,7 +52,7 @@ is published to `ghcr.io/davano-innovation-lab/tessera`.
 tessera scan ./model-dir --out ./boms
 
 # Just the bill of materials
-tessera bom ./model-dir --format cyclonedx,spdx,sarif
+tessera bom ./model-dir --format cyclonedx,spdx,sarif --out ./boms
 
 # Does this document still describe these bytes?
 # Works on any CycloneDX ML-BOM, including ones other tools produced.

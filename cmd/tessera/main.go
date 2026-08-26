@@ -5,6 +5,7 @@
 // fetches external data, and never touches the network. That makes it safe to
 // run inside an air-gapped enclave against an untrusted artifact.
 //
+//	tessera scan <path> [--out DIR] [--fail-on SEVERITY]
 //	tessera bom <path> [--format cyclonedx,spdx] [--out DIR] [--reproducible]
 //	tessera inspect <path>
 //	tessera version
@@ -77,6 +78,7 @@ func usage() {
 	fmt.Fprint(os.Stderr, `tessera - offline AIBOM generator for model files
 
 Usage:
+  tessera scan     <path> [--out DIR] [--fail-on SEVERITY]
   tessera bom      <path> [--format cyclonedx,spdx,sarif] [--cyclonedx-version 1.6|1.7]
                    [--out DIR] [--reproducible]
   tessera inspect  <path> [--json]
