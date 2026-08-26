@@ -32,6 +32,11 @@ type Evaluation struct {
 	// Drift counts findings where the artifact's declarations disagree with
 	// its bytes, summed across every scanner that reported any.
 	Drift SeverityCounts
+	// Unexamined counts findings reporting that part of the artifact was not
+	// read, summed across every scanner. Zero here and zero findings together
+	// mean a clean artifact; zero findings with a non-zero count here means
+	// something was never looked at.
+	Unexamined SeverityCounts
 	// AIBOMGenerated reports whether a bill of materials describing the model
 	// was actually produced. A scanner that ran and described nothing is not
 	// the same as one that described a clean model.
@@ -71,6 +76,7 @@ const (
 	RuleRequireSBOM       = "requireSBOM"
 	RuleRequireAIBOM      = "requireAIBOM"
 	RuleBlockModelDrift   = "blockModelDrift"
+	RuleBlockUnexamined   = "blockUnexamined"
 	RuleRequireProvenance = "requireProvenance"
 	RuleAllowedFormats    = "allowedFormats"
 	RuleBlockedFormats    = "blockedFormats"
@@ -103,6 +109,7 @@ func Evaluate(
 		ModelFindings: sumSeverities(byCategory[CategoryModel]),
 		AIBOMFindings: sumSeverities(byCategory[CategoryAIBOM]),
 		Drift:         sumDrift(results),
+		Unexamined:    sumUnexamined(results),
 	}
 	eval.AIBOMGenerated = produced(byCategory[CategoryAIBOM])
 	eval.ProvenanceChecked = hasCategory(byCategory, CategoryProvenance)
@@ -229,6 +236,19 @@ func Evaluate(
 			Message: fmt.Sprintf(
 				"%d finding(s) where the model's declarations disagree with its weights",
 				eval.Drift.Critical+eval.Drift.High),
+		})
+	}
+
+	// An artifact part of which could not be read is not an artifact that was
+	// found clean. Any severity counts here: the point is not how bad the
+	// unread part looked, it is that nobody looked at it.
+	if boolValue(rules.BlockUnexamined, false) && eval.Unexamined.Total() > 0 {
+		violations = append(violations, Violation{
+			Rule:     RuleBlockUnexamined,
+			Severity: "High",
+			Message: fmt.Sprintf(
+				"%d part(s) of the artifact could not be examined; the verdict rests on "+
+					"less of it than it appears to", eval.Unexamined.Total()),
 		})
 	}
 
@@ -436,6 +456,21 @@ func allPassed(results []ScannerResult) bool {
 		}
 	}
 	return true
+}
+
+// sumUnexamined totals the coverage findings across every scanner, for the
+// same reason sumDrift exists: not being able to read something is a property
+// of the artifact, whichever scanner ran into it.
+func sumUnexamined(results []ScannerResult) SeverityCounts {
+	var total SeverityCounts
+	for _, r := range results {
+		total.Critical += r.Unexamined.Critical
+		total.High += r.Unexamined.High
+		total.Medium += r.Unexamined.Medium
+		total.Low += r.Unexamined.Low
+		total.Unknown += r.Unexamined.Unknown
+	}
+	return total
 }
 
 // sumDrift totals drift across every scanner rather than only the bill-of-

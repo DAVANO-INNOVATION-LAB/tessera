@@ -8,6 +8,7 @@ import (
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/compliance"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/gate"
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/ingest"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
 )
 
 // The platform surface: judging an artifact, not merely describing it.
@@ -69,6 +70,37 @@ const (
 // the gate does not know is reported as unresolved rather than ignored, because
 // a scanner that reported nothing and a scanner nobody could interpret look
 // identical from the outside and mean opposite things.
+// UnexaminedFinding reports whether a finding identifier means a file was not
+// read, rather than saying something about what was in it.
+//
+// Exposed so a caller assembling ScannerResults can fill in the Unexamined
+// tally without keeping its own copy of the list, which would drift.
+func UnexaminedFinding(id string) bool { return model.Unexamined(id) }
+
+// TallyUnexamined counts findings that report something was not examined,
+// by severity, ready to put on a ScannerResult.
+func TallyUnexamined(findings []Finding) SeverityCounts {
+	var c SeverityCounts
+	for _, f := range findings {
+		if !model.Unexamined(f.ID) {
+			continue
+		}
+		switch f.Severity {
+		case "Critical":
+			c.Critical++
+		case "High":
+			c.High++
+		case "Medium":
+			c.Medium++
+		case "Low":
+			c.Low++
+		default:
+			c.Unknown++
+		}
+	}
+	return c
+}
+
 func Gate(results []ScannerResult, artifact GateArtifact, rules *GateRules, exceptions []GateException, now time.Time) GateResult {
 	return gate.Evaluate(results, artifact, rules, exceptions, now)
 }

@@ -46,6 +46,13 @@ type Rules struct {
 	// its bytes. Off by default: drift is frequently benign, and a quantized
 	// re-upload carrying its original config is the common case.
 	BlockModelDrift *bool `json:"blockModelDrift,omitempty"`
+	// BlockUnexamined quarantines an artifact part of which could not be read.
+	//
+	// Off by default, because it refuses artifacts that are admitted today and
+	// that is the operator's call. Turning it on is the difference between "no
+	// findings" meaning "nothing wrong was found" and meaning "nothing was
+	// found, and we looked".
+	BlockUnexamined *bool `json:"blockUnexamined,omitempty"`
 	// RequireSignature demands a verified signature from a trusted publisher.
 	RequireSignature bool `json:"requireSignature,omitempty"`
 	// RequireProvenance demands a provenance attestation, not merely a
@@ -84,6 +91,16 @@ type ScannerResult struct {
 	// disagree with its bytes, by severity. Kept separate from the severity
 	// buckets above because it is gated separately.
 	Drift SeverityCounts `json:"drift,omitempty"`
+	// Unexamined counts the findings reporting that part of the artifact was
+	// not read — a container that would not open, a walk that stopped at its
+	// limit, a header that would not parse.
+	//
+	// Separate for the same reason Drift is: these say nothing about what is in
+	// the artifact, only about how much of it was looked at, and a policy that
+	// wants to refuse an unread artifact has nothing else to match on. Folded
+	// into the severity buckets they are indistinguishable from findings about
+	// the bytes.
+	Unexamined SeverityCounts `json:"unexamined,omitempty"`
 	// Produced records whether the scanner actually generated its artifact.
 	// A scanner that ran cleanly but described nothing must not satisfy a
 	// requirement to produce a bill of materials, and only this field can tell
