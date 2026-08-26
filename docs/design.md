@@ -78,3 +78,25 @@ part: a buyer discovers them either from this report or on their own.
 of its own — so it embeds inside another program rather than being shelled out
 to. That is the difference that matters most if you are putting it inside
 something else, and it is pinned by tests rather than asserted.
+
+### Where it stops
+
+Tessera reads a model. It never runs one.
+
+That is the whole boundary, and it settles more than it first appears to. What a
+model *does* once it is loaded — what it answers, what it refuses, what an agent
+does with the answer — is not a property of the bytes and no amount of reading
+them discloses it. A model deliberately built to refuse less is byte-for-byte an
+ordinary model: correct weights, ordinary config, ordinary tokenizer. There is
+nothing in the file to find, here or in any other scanner.
+
+What *is* in the file is everything that executes before the model answers
+anything: a pickle that imports `os.system`, a config that hands loading to
+model-supplied Python, an archive entry that escapes its directory, a chat
+template that reaches the interpreter rather than formatting a conversation.
+Those run ahead of any guardrail being consulted, which is what makes them worth
+finding — and they are findable, because they are in the bytes.
+
+The distinction is worth keeping sharp in both directions. A tool that claimed
+the first would be lying; a tool that skipped the second would be missing the
+part it can actually settle.

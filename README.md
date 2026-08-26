@@ -134,7 +134,7 @@ case is readable and the run is reproducible.
 | [Standards](docs/standards.md) | CISA 2026, G7, CERT-In, BSI coverage |
 | [Embedding](docs/embedding.md) | library, CLI, C shared library, WebAssembly |
 | [CI](docs/ci.md) | GitHub Action and pipeline use |
-| [Design](docs/design.md) | why it works this way |
+| [Design](docs/design.md) | why it works this way, and where it stops |
 | [Studio](studio/README.md) | interface, authentication, OIDC |
 
 ## Licence
