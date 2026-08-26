@@ -146,7 +146,7 @@ func probe(ctx context.Context, c store.Connection) (bool, string) {
 		return httpProbe(c)
 
 	default:
-		// The cloud kinds need their SDKs, which live in tessera-fetch rather
+		// The cloud kinds need their SDKs, which live in the fetch module rather
 		// than here. Saying so is better than a green tick that means nothing.
 		if c.Endpoint == "" && c.Region == "" {
 			return false, "needs an endpoint or a region"
