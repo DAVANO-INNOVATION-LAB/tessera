@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -72,5 +73,39 @@ func writeTokenizerConfig(t *testing.T, dir string, cfg map[string]any) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "tokenizer_config.json"), b, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// An AppleDouble stub carries the name and extension of the file it shadows, so
+// reading one as a model gives a header of arbitrary bytes — reported as a
+// malformed model on an artifact that is perfectly sound. Every archive rolled
+// up on macOS carries one per file, so this is the ordinary case, and a scanner
+// that flags the ordinary case is one people switch off.
+func TestAppleDoubleStubsAreNotScannedAsModels(t *testing.T) {
+	dir := t.TempDir()
+	// A well-formed safetensors, and the stub macOS writes beside it.
+	hdr := []byte(`{"__metadata__":{"format":"pt"},"w":{"dtype":"F16","shape":[2,2],"data_offsets":[0,8]}}`)
+	body := append(append(make([]byte, 0), byte(len(hdr)), 0, 0, 0, 0, 0, 0, 0), hdr...)
+	body = append(body, make([]byte, 8)...)
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, stub := range []string{"._model.safetensors", "._config.json", ".DS_Store"} {
+		if err := os.WriteFile(filepath.Join(dir, stub), []byte("Mac OS X    \x00\x02\x00"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rep, err := Inspect(dir, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range rep.Findings {
+		if strings.HasPrefix(f.Location, "._") || f.Location == ".DS_Store" {
+			t.Errorf("filesystem bookkeeping was scanned as content: %s on %s", f.ID, f.Location)
+		}
+		if f.ID == "TESS-ST-002" {
+			t.Errorf("a sound model reported as malformed (%s) because of a resource fork", f.ID)
+		}
 	}
 }

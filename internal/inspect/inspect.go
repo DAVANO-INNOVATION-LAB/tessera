@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/model"
+	"github.com/DAVANO-INNOVATION-LAB/tessera/internal/parse"
 )
 
 // Report is the model inspector's output.
@@ -79,10 +80,22 @@ func Inspect(root string, limits Limits) (*Report, error) {
 			return filepath.SkipDir
 		}
 		if info.IsDir() {
+			if parse.InBookkeepingDir(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
 		rel := relPath(root, path)
+
+		// Filesystem bookkeeping is not part of the artifact. An AppleDouble
+		// stub carries the name and extension of the file it shadows, so
+		// reading one as a model yields a header of arbitrary bytes — which
+		// reports as a malformed model on an artifact that is perfectly fine.
+		// Any archive rolled up on macOS carries one per file.
+		if parse.FilesystemBookkeeping(path) || parse.InBookkeepingDir(path) {
+			return nil
+		}
 
 		// Symlinks are reported and never followed: a model archive that
 		// links to /etc or the service account token is an exfiltration
