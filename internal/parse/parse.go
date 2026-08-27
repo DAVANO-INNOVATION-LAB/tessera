@@ -148,6 +148,12 @@ func pickPrimary(dir string) (string, error) {
 			continue
 		}
 		name := e.Name()
+		// An AppleDouble stub shadows the file it belongs to and sorts before
+		// it, so without this the scan describes a few hundred bytes of
+		// resource fork instead of the model.
+		if FilesystemBookkeeping(name) {
+			continue
+		}
 		switch strings.ToLower(filepath.Ext(name)) {
 		case ".gguf", ".ggml":
 			gguf = append(gguf, name)
@@ -200,6 +206,11 @@ func collectFiles(ctx context.Context, a *model.Artifact, primary, dir string, o
 
 	seen := map[string]bool{}
 	add := func(path, role string) error {
+		// A resource fork is not a component of the model, and pinning its
+		// digest in the bill of materials says nothing about the weights.
+		if FilesystemBookkeeping(path) || InBookkeepingDir(path) {
+			return nil
+		}
 		abs, err := filepath.Abs(path)
 		if err != nil {
 			abs = filepath.Clean(path)
