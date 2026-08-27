@@ -46,6 +46,17 @@ type Rules struct {
 	// its bytes. Off by default: drift is frequently benign, and a quantized
 	// re-upload carrying its original config is the common case.
 	BlockModelDrift *bool `json:"blockModelDrift,omitempty"`
+	// MaxHighModelFindings is how many High model-inspection findings an
+	// artifact may carry before it is quarantined. Nil means no limit.
+	//
+	// BlockUnsafeModel covers Critical only, so until this existed a High
+	// finding could be raised, scored and reported with no rule able to act on
+	// it. A chat template that reaches the interpreter and a native library
+	// inside the weights are both High, and both execute at load.
+	//
+	// CVEs have had two thresholds from the start; this is the matching one for
+	// findings about the model itself.
+	MaxHighModelFindings *int32 `json:"maxHighModelFindings,omitempty"`
 	// BlockUnexamined quarantines an artifact part of which could not be read.
 	//
 	// Off by default, because it refuses artifacts that are admitted today and

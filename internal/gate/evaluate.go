@@ -77,6 +77,7 @@ const (
 	RuleRequireAIBOM      = "requireAIBOM"
 	RuleBlockModelDrift   = "blockModelDrift"
 	RuleBlockUnexamined   = "blockUnexamined"
+	RuleMaxHighModel      = "maxHighModelFindings"
 	RuleRequireProvenance = "requireProvenance"
 	RuleAllowedFormats    = "allowedFormats"
 	RuleBlockedFormats    = "blockedFormats"
@@ -236,6 +237,20 @@ func Evaluate(
 			Message: fmt.Sprintf(
 				"%d finding(s) where the model's declarations disagree with its weights",
 				eval.Drift.Critical+eval.Drift.High),
+		})
+	}
+
+	// High model findings are load-time code execution that happens not to have
+	// been rated Critical: a chat template reaching the interpreter, a native
+	// library beside the weights, custom classes the loader will import. The
+	// scanner has always found these; nothing could refuse them.
+	if rules.MaxHighModelFindings != nil && eval.ModelFindings.High > *rules.MaxHighModelFindings {
+		violations = append(violations, Violation{
+			Rule:     RuleMaxHighModel,
+			Severity: "High",
+			Message: fmt.Sprintf(
+				"%d high-severity model finding(s) exceeds the limit of %d",
+				eval.ModelFindings.High, *rules.MaxHighModelFindings),
 		})
 	}
 
