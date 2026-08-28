@@ -321,6 +321,12 @@ func notePeerWeightFiles(a *model.Artifact, dir, primary string) {
 		if e.IsDir() || e.Name() == primaryBase {
 			continue
 		}
+		// An AppleDouble stub carries the extension of the file it shadows, so
+		// a single tokenizer.pkl reads as two pickles beside the weights and
+		// the finding overstates what is actually there.
+		if FilesystemBookkeeping(e.Name()) {
+			continue
+		}
 		if executableWeightExts[strings.ToLower(filepath.Ext(e.Name()))] {
 			peers = append(peers, e.Name())
 		}
